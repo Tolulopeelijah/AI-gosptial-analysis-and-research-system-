@@ -1,0 +1,201 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+   Design tokens
+
+   Palette values come from the project's validated data-visualisation palette
+   (see README → "Colour system"). Chrome/ink use the neutral scale; the blue
+   ramp is reserved for magnitude (choropleth) and for data-series slot 1.
+   Status colours are reserved for state and are never reused as a series.
+   --------------------------------------------------------------------------- */
+@theme {
+  /* Surfaces & chrome */
+  --color-canvas: #f9f9f7;
+  --color-panel: #fcfcfb;
+  --color-panel-muted: #f4f4f1;
+  --color-panel-sunken: #efeeea;
+  --color-line: #e1e0d9;
+  --color-line-strong: #c3c2b7;
+
+  /* Ink */
+  --color-ink: #0b0b0b;
+  --color-ink-2: #52514e;
+  --color-ink-3: #898781;
+
+  /* Accent (UI) + data-series slots 1-3 (identity, fixed order, never cycled) */
+  --color-accent: #2a78d6;
+  --color-accent-ink: #1c5cab;
+  --color-accent-soft: #cde2fb;
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+  --color-series-3: #1baf7a;
+
+  /* Sequential ramp (single hue, light -> dark) for magnitude/choropleth */
+  --color-seq-100: #cde2fb;
+  --color-seq-200: #9ec5f4;
+  --color-seq-300: #6da7ec;
+  --color-seq-400: #3987e5;
+  --color-seq-500: #256abf;
+  --color-seq-600: #184f95;
+  --color-seq-700: #0d366b;
+
+  /* Status (reserved — always paired with an icon + label, never colour alone) */
+  --color-good: #0ca30c;
+  --color-good-ink: #006300;
+  --color-warning: #fab219;
+  --color-serious: #ec835a;
+  --color-critical: #d03b3b;
+
+  /* Result pointers: signal red so point markers stand out on any basemap */
+  --color-pointer: #d03b3b;
+  --color-pointer-stroke: #8f1d1d;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --radius-panel: 3px;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+  }
+
+  /* Technical-instrument look: hairline focus rings, no glow. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+
+  ::selection {
+    background: var(--color-accent-soft);
+  }
+
+  /* Slim scrollbars so dense panels stay quiet. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* ---------------------------------------------------------------------
+     Leaflet chrome, restyled to match the application shell rather than
+     shipping the default rounded white boxes.
+     --------------------------------------------------------------------- */
+  .leaflet-container {
+    background: var(--color-panel-sunken);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    outline: none;
+  }
+
+  .leaflet-control-attribution {
+    background: color-mix(in srgb, var(--color-panel) 88%, transparent) !important;
+    color: var(--color-ink-2);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-top-left-radius: 3px;
+  }
+  .leaflet-control-attribution a {
+    color: var(--color-accent-ink);
+  }
+
+  .leaflet-popup-content-wrapper {
+    border-radius: 3px;
+    border: 1px solid var(--color-line-strong);
+    box-shadow: 0 6px 18px rgb(11 11 11 / 0.13);
+    background: var(--color-panel);
+    color: var(--color-ink);
+    padding: 0;
+  }
+  .leaflet-popup-content {
+    margin: 0;
+    padding: 9px 11px;
+    line-height: 1.4;
+    width: auto !important;
+  }
+  .leaflet-popup-tip {
+    border: 1px solid var(--color-line-strong);
+    background: var(--color-panel);
+  }
+  .leaflet-popup-close-button {
+    color: var(--color-ink-3) !important;
+    padding: 6px 6px 0 0 !important;
+  }
+
+  .leaflet-tooltip {
+    border-radius: 2px;
+    border: 1px solid var(--color-line-strong);
+    box-shadow: 0 4px 12px rgb(11 11 11 / 0.12);
+    background: var(--color-panel);
+    color: var(--color-ink);
+    font-size: 12px;
+    padding: 4px 7px;
+  }
+  .leaflet-tooltip-top:before,
+  .leaflet-tooltip-bottom:before,
+  .leaflet-tooltip-left:before,
+  .leaflet-tooltip-right:before {
+    display: none;
+  }
+
+  /* County labels are rendered as a tooltip-like pane so they scale with zoom. */
+  .geoscope-label {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    color: var(--color-ink-2);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    padding: 0;
+    text-shadow:
+      0 0 2px var(--color-panel),
+      0 0 3px var(--color-panel),
+      0 0 5px var(--color-panel);
+    white-space: nowrap;
+  }
+  .geoscope-label:before {
+    display: none;
+  }
+
+  .leaflet-bar a,
+  .leaflet-bar a:hover {
+    border-radius: 0;
+  }
+
+  /* Fullscreen mode: the map wrapper is what goes fullscreen, so its
+     absolutely-positioned overlay panels come along with it. */
+  .map-shell:fullscreen {
+    width: 100vw;
+    height: 100vh;
+    background: var(--color-panel-sunken);
+  }
+}

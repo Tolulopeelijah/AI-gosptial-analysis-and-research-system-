@@ -1,0 +1,128 @@
+[
+  {
+    "source": "ncwqr_maumee_export",
+    "title": "NCWQR Maumee River export — citation and DOI",
+    "identifier": "doi:10.5281/zenodo.6606949",
+    "url": "https://doi.org/10.5281/zenodo.6606949",
+    "content": "The Maumee River water-quality dataset used here was exported from the Heidelberg University National Center for Water Quality Research (NCWQR) tributary monitoring program. Citation requirement from the workbook ReadMe sheet: 'If you use this data for a publication, be sure to cite us!' DOI: https://doi.org/10.5281/zenodo.6606949. Local file sheets: ReadMe (export metadata) and Maumee_samples (observations)."
+  },
+  {
+    "source": "ncwqr_maumee_export",
+    "title": "Maumee_samples table — parameters and grain",
+    "identifier": "maumee_samples_schema_v1",
+    "url": "https://doi.org/10.5281/zenodo.6606949",
+    "content": "Maumee_samples holds station-level time-series observations from 1975-01-10 to 2025-09-30 (about 22,753 records). Each row is a sampling DateTime with Qualifier and Value columns for ten parameters: FLOW (flow, cfs), TSS (total suspended solids, mg/L), TP (total phosphorus, mg-P/L), SRP (soluble reactive phosphorus, mg-P/L), NO23 (nitrite+nitrate, mg-N/L), TKN (total Kjeldahl nitrogen, mg-N/L), CL (chloride, mg/L), SO4 (sulfate, mg/L), SI (total silica, mg-Si/L), COND (conductivity, umho). Later-added parameters (SO4, SI, COND) have substantial missing values in early years. The table has no per-row coordinates; geographic use is station-level only."
+  },
+  {
+    "source": "analyst_synthesis",
+    "title": "Maumee River monitoring context (analyst-written synthesis, NOT an NCWQR publication)",
+    "identifier": "maumee_station_context_v1",
+    "url": "https://doi.org/10.5281/zenodo.6606949",
+    "content": "ANALYST SYNTHESIS — not quoted from any NCWQR page; interpretive context only. NCWQR monitors the Maumee River as a major Lake Erie tributary source of phosphorus; long-term flow, suspended sediment, total phosphorus (TP), soluble reactive phosphorus (SRP) and nitrogen species (nitrate+nitrite NO23, TKN) records support research on agricultural runoff, harmful algal blooms in western Lake Erie, and conservation-practice effectiveness. Septic systems and floodplain inundation are plausible local nutrient/sediment pathways, but attributing any single septic-system or floodplain finding to Maumee loads requires site-specific study; the station record alone cannot establish that link."
+  },
+  {
+    "source": "ncwqr_lab_publications",
+    "title": "NCWQR Lab Publications page — scope",
+    "identifier": "ncwqr_lab_publications_page",
+    "url": "https://ncwqr.org/publications/lab-publications/",
+    "content": "The NCWQR Lab Publications page lists peer-reviewed articles authored by NCWQR lab staff, organized by year (coverage on the page spans roughly 1997–2023). Recurring topics visible in the listing: phosphorus and nitrogen loading from Lake Erie tributaries (especially the Maumee), harmful algal blooms, tributary nutrient trend analysis, conservation-practice effectiveness, and tributary monitoring methods. Full citation list is browsable at the page URL; selected relevant entries are indexed individually here."
+  },
+  {
+    "source": "ncwqr_derived_works",
+    "title": "NCWQR Derived Works page — scope",
+    "identifier": "ncwqr_derived_works_page",
+    "url": "https://ncwqr.org/publications/derived-works/",
+    "content": "The NCWQR Derived Works page lists published peer-reviewed articles that use Heidelberg Tributary Loading Program (HTLP) data or samples processed by the NCWQR lab, organized by year (coverage on the page spans roughly 2007–2024). Topics include nutrient load estimation methods, phosphorus attribution and source apportionment, algal bloom forecasting, watershed modeling, and agricultural conservation. Full citation list is browsable at the page URL; selected relevant entries are indexed individually here."
+  },
+  {
+    "source": "ncwqr_lab_publications",
+    "title": "Johnson et al. 2023 — Drivers of annual suspended sediment and nutrient yields in tributaries to Lake Erie",
+    "identifier": "doi:10.14321/aehm.026.04.05",
+    "url": "https://doi.org/10.14321/aehm.026.04.05",
+    "content": "Johnson, Manning, Dezse, Boehler, Clark, Fulton, Miller, and Roerdink (2023), Aquatic Ecosystem Health & Management 26(4): 5–19. Topic, per its title: drivers of annual suspended sediment and nutrient yields in tributaries to Lake Erie. Relevant when interpreting sediment (TSS) and nutrient yield patterns in tributary records such as the Maumee dataset."
+  },
+  {
+    "source": "ncwqr_lab_publications",
+    "title": "Guo et al. 2020 — Less agricultural phosphorus applied in 2019 led to less dissolved phosphorus transported to Lake Erie",
+    "identifier": "doi:10.1021/acs.est.0c03495",
+    "url": "https://doi.org/10.1021/acs.est.0c03495",
+    "content": "Guo, Johnson, LaBarge, Penn, Stumpf, Baker, and Shao (2020), Environmental Science & Technology 55(1): 283–291. Topic, per its title: the relationship between agricultural phosphorus application and dissolved phosphorus transport to Lake Erie. Relevant to interpreting SRP/TP dynamics and agricultural source discussions."
+  },
+  {
+    "source": "ncwqr_lab_publications",
+    "title": "Stow et al. 2015 — Long-term and seasonal trend decomposition of the Maumee River nutrient inputs to western Lake Erie",
+    "identifier": "doi:10.1021/es5062648",
+    "url": "https://doi.org/10.1021/es5062648",
+    "content": "Stow, Cha, Johnson, Confesor, and Richards (2015), Environmental Science & Technology 49(6): 3392–3400. Topic, per its title: long-term and seasonal trend decomposition of Maumee River nutrient inputs to western Lake Erie. Directly relevant to interpreting trends in the Maumee time-series dataset."
+  },
+  {
+    "source": "ncwqr_lab_publications",
+    "title": "Baker et al. 2014 — Phosphorus loading to Lake Erie from the Maumee, Sandusky, and Cuyahoga rivers: The importance of bioavailability",
+    "identifier": "doi:10.1016/j.jglr.2014.05.001",
+    "url": "https://doi.org/10.1016/j.jglr.2014.05.001",
+    "content": "Baker, Confesor, Ewing, Johnson, Kramer, and Merryfield (2014), Journal of Great Lakes Research 40(3): 502–517. Topic, per its title: phosphorus loading from the Maumee, Sandusky, and Cuyahoga rivers with emphasis on bioavailability. Relevant to interpreting TP/SRP fractions in tributary data."
+  },
+  {
+    "source": "ncwqr_lab_publications",
+    "title": "Baker et al. 2019 — Needed: Early-term adjustments for Lake Erie phosphorus target loads to address western basin cyanobacterial blooms",
+    "identifier": "doi:10.1016/j.jglr.2019.01.011",
+    "url": "https://doi.org/10.1016/j.jglr.2019.01.011",
+    "content": "Baker, Johnson, Confesor, Crumrine, Guo, and Manning (2019), Journal of Great Lakes Research 45(2): 203–211. Topic, per its title: phosphorus target loads for Lake Erie in relation to western basin cyanobacterial blooms. Relevant context for why Maumee phosphorus loads matter."
+  },
+  {
+    "source": "ncwqr_lab_publications",
+    "title": "Jarvie et al. 2017 — Increased soluble phosphorus loads to Lake Erie: Unintended consequences of conservation practices?",
+    "identifier": "doi:10.2134/jeq2016.07.0248",
+    "url": "https://doi.org/10.2134/jeq2016.07.0248",
+    "content": "Jarvie, Johnson, Sharpley, Smith, Baker, Bruulsema, and Confesor (2017), Journal of Environmental Quality 46(1): 123–132. Topic, per its title: rising soluble phosphorus loads and their possible connection to conservation practices. Relevant when rising SRP appears in tributary records."
+  },
+  {
+    "source": "ncwqr_lab_publications",
+    "title": "Rowland et al. 2021 — Lake Erie tributary nutrient trend evaluation: normalizing concentrations and loads to reduce flow variability",
+    "identifier": "doi:10.1016/j.ecolind.2021.107601",
+    "url": "https://doi.org/10.1016/j.ecolind.2021.107601",
+    "content": "Rowland, Stow, Johnson, and Hirsch (2021), Ecological Indicators 125: 107601. Topic, per its title: evaluating tributary nutrient trends while normalizing for flow variability. Relevant methodology context for trend questions over the Maumee record, where flow confounds concentration trends."
+  },
+  {
+    "source": "ncwqr_derived_works",
+    "title": "Kast et al. 2021 — Source contribution to phosphorus loads from the Maumee River watershed to Lake Erie",
+    "identifier": "doi:10.1016/j.jenvman.2020.111803",
+    "url": "https://doi.org/10.1016/j.jenvman.2020.111803",
+    "content": "Kast, Apostel, Kalcic, Muenich, Dagnew, Long, Evenson, and Martin (2021), Journal of Environmental Management 279: 111803. Topic, per its title: apportioning phosphorus load sources within the Maumee River watershed. Relevant when asking which sources drive Maumee phosphorus."
+  },
+  {
+    "source": "ncwqr_derived_works",
+    "title": "Wei et al. 2024 — Integrating water quality data with a Bayesian network model to improve spatial and temporal phosphorus attribution: Application to the Maumee River Basin",
+    "identifier": "doi:10.1016/j.jenvman.2024.121120",
+    "url": "https://doi.org/10.1016/j.jenvman.2024.121120",
+    "content": "Wei, Alam, Verma, Hilderbran, Wu, Anderson, Ho, and Suckale (2024), Journal of Environmental Management 360: 121120. Topic, per its title: spatial and temporal phosphorus attribution in the Maumee River Basin using water-quality data with Bayesian network modeling. Relevant to source-attribution questions."
+  },
+  {
+    "source": "ncwqr_derived_works",
+    "title": "Verma et al. 2018 — Quantifying the Role of Large Floods in Riverine Nutrient Loadings Using Linear Regression and Analysis of Covariance",
+    "identifier": "doi:10.3390/su10082876",
+    "url": "https://doi.org/10.3390/su10082876",
+    "content": "Verma, Bartosova, Markus, Cooke, Um, and Park (2018), Sustainability 10(8): 2876. Topic, per its title: the role of large floods in riverine nutrient loadings. Directly relevant when floodplain analyses are combined with water-quality interpretation."
+  },
+  {
+    "source": "ncwqr_derived_works",
+    "title": "Williams and King 2020 — Changing Rainfall Patterns Over the Western Lake Erie Basin (1975–2017): Effects on Tributary Discharge and Phosphorus Load",
+    "identifier": "doi:10.1029/2019WR025985",
+    "url": "https://doi.org/10.1029/2019WR025985",
+    "content": "Williams and King (2020), Water Resources Research 56(3): e2019WR025985. Topic, per its title: how changing rainfall patterns affect tributary discharge and phosphorus load across 1975–2017 — the same era as the Maumee record. Relevant to flow/load trend interpretation."
+  },
+  {
+    "source": "ncwqr_derived_works",
+    "title": "Meyer et al. 2023 — Remotely sensed imagery reveals animal feeding operations increase downstream dissolved reactive phosphorus",
+    "identifier": "doi:10.1111/1752-1688.13177",
+    "url": "https://doi.org/10.1111/1752-1688.13177",
+    "content": "Meyer, Raff, and Porter (2023), Journal of the American Water Resources Association. Topic, per its title: animal feeding operations as a driver of downstream dissolved reactive phosphorus. Relevant when local nutrient sources near waterways are discussed."
+  },
+  {
+    "source": "ncwqr_derived_works",
+    "title": "Jacquemin et al. 2022 — On the potential for reconstructed wetlands to remediate fecal coliform loading in an agricultural watershed",
+    "identifier": "doi:10.1007/s10750-022-05078-2",
+    "url": "https://doi.org/10.1007/s10750-022-05078-2",
+    "content": "Jacquemin, Birt, Senger, Axe, Strang, Ewing, Kinney, and Newell (2022), Hydrobiologia 850: 3879–3891. Topic, per its title: reconstructed wetlands remediating fecal coliform loading in an agricultural watershed. Relevant pathogen/wetland context when septic-system or floodplain findings raise water-quality questions."
+  }
+]

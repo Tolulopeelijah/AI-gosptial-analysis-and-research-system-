@@ -2,8 +2,11 @@ import { AppHeader } from '@/components/layout/AppHeader'
 import { ModeSelector } from '@/components/query/ModeSelector'
 import { QueryPanel } from '@/components/query/QueryPanel'
 import { ChatPanel } from '@/components/query/ChatPanel'
+import { ResearchBrief } from '@/components/query/ResearchBrief'
+import { DataUpload } from '@/components/query/DataUpload'
 import { ProcessingPanel } from '@/components/processing/ProcessingPanel'
 import { ResultsPanel } from '@/components/results/ResultsPanel'
+import { PaperPanel } from '@/components/results/PaperPanel'
 import { TablesSection } from '@/components/results/TablesSection'
 import { MapCanvas } from '@/components/map/MapCanvas'
 import { useQueryState } from '@/state/QueryProvider'
@@ -23,7 +26,9 @@ import { cn } from '@/lib/cn'
  * covered by the map.
  */
 export function MainPage() {
-  const { mode } = useQueryState()
+  const { mode, query } = useQueryState()
+  const showPaper =
+    mode === 'research' && !query.isRunning && query.run.status === 'completed' && !!query.run.paper
 
   return (
     <div className="flex h-dvh min-h-0 flex-col bg-canvas text-ink">
@@ -40,7 +45,9 @@ export function MainPage() {
             <ChatPanel />
           ) : (
             <>
+              {mode === 'research' ? <ResearchBrief /> : null}
               <QueryPanel />
+              {mode === 'data' ? <DataUpload /> : null}
               <ProcessingPanel />
             </>
           )}
@@ -50,7 +57,7 @@ export function MainPage() {
           aria-label="Answer"
           className="flex min-h-0 flex-1 flex-col gap-2 lg:overflow-y-auto"
         >
-          <ResultsPanel />
+          {showPaper ? <PaperPanel /> : <ResultsPanel />}
           {mode === 'data' ? <TablesSection /> : null}
         </main>
 

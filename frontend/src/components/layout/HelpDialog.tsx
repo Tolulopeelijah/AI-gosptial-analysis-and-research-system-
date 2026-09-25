@@ -211,7 +211,7 @@ const MODE_GUIDE: Array<{ mode: QueryMode; label: string; use: string; example: 
   {
     mode: 'research',
     label: 'Research',
-    use: 'full workflow: plan, execute, explain with references',
+    use: 'full workflow with aims; answer is a paper with references',
     example:
       'Find septic systems within 2 km of floodplain areas and summarize relevant NCWQR research.',
   },
@@ -224,7 +224,7 @@ const MODE_GUIDE: Array<{ mode: QueryMode; label: string; use: string; example: 
   {
     mode: 'data',
     label: 'Data',
-    use: 'raw tables and layers for download, no analysis prose',
+    use: 'raw tables and layers for download; upload your own files here',
     example: 'Summarize total phosphorus (TP) in the Maumee dataset.',
   },
 ]

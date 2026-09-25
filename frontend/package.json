@@ -1,9 +1,9 @@
 {
-  "name": "geoscope",
+  "name": "weis",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Geoscope — frontend for a natural-language geospatial analysis system",
+  "description": "WEIS — frontend for a natural-language geospatial analysis system",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

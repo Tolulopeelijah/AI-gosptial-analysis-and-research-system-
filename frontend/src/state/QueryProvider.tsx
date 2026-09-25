@@ -48,6 +48,9 @@ export interface QueryContextValue {
   /** Handling mode for the next query. */
   mode: QueryMode
   setMode: (mode: QueryMode) => void
+  /** Research aims/objectives draft (research mode). */
+  aims: string
+  setAims: (value: string) => void
   /** Conversational turns (chat mode only), oldest first. */
   chatTurns: ChatTurn[]
   /** History payload sent with chat follow-ups. */
@@ -64,6 +67,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState('')
   const [focusRequest, setFocusRequest] = useState(0)
   const [mode, setMode] = useState<QueryMode>('research')
+  const [aims, setAims] = useState('')
   const [chatTurns, setChatTurns] = useState<ChatTurn[]>([])
   const modeRef = useRef<QueryMode>('research')
   modeRef.current = mode
@@ -162,11 +166,13 @@ export function QueryProvider({ children }: { children: ReactNode }) {
       focusRequest,
       mode,
       setMode,
+      aims,
+      setAims,
       chatTurns,
       chatHistory,
       clearChat,
     }),
-    [query, restoreEntry, draft, fillDraft, focusRequest, mode, chatTurns, chatHistory, clearChat],
+    [query, restoreEntry, draft, fillDraft, focusRequest, mode, aims, chatTurns, chatHistory, clearChat],
   )
 
   return <QueryContext.Provider value={value}>{children}</QueryContext.Provider>

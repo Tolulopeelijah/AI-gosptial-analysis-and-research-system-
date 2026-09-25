@@ -100,10 +100,10 @@ export function ChatPanel() {
             </div>
             <div className="flex items-center gap-1.5 px-0.5">
               <span className="flex size-4 items-center justify-center rounded-full bg-ink text-[8px] font-bold text-panel">
-                G
+                W
               </span>
               <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-3">
-                Geoscope
+                WEIS
               </span>
             </div>
             <div className="rounded-[6px] rounded-tl-[2px] border border-line bg-panel px-2.5 py-1.5">
@@ -136,11 +136,11 @@ export function ChatPanel() {
       </div>
 
       <div className="mt-2 shrink-0 border border-line-strong bg-panel focus-within:border-accent">
-        <label className="sr-only" htmlFor="geoscope-chat">
+        <label className="sr-only" htmlFor="weis-chat">
           Chat message
         </label>
         <textarea
-          id="geoscope-chat"
+          id="weis-chat"
           value={input}
           onChange={(event) => setInput(event.target.value.slice(0, MAX_LENGTH))}
           onKeyDown={handleKeyDown}

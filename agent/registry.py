@@ -132,6 +132,31 @@ def build_registry() -> Dict[str, DatasetInfo]:
             },
         ),
     }
+    # User-uploaded datasets become first-class queryable entries.
+    try:
+        from .uploads import list_uploads
+
+        for u in list_uploads():
+            kind = u.get("kind", "table")
+            registry[u["name"]] = DatasetInfo(
+                name=u["name"],
+                description=(
+                    f"User-uploaded {kind} dataset "
+                    f"({u.get('original_filename')}); {u.get('count')} "
+                    f"{'features' if kind != 'table' else 'rows'}"
+                    + ("; coordinates assumed EPSG:4326" if kind != "table" else "")
+                ),
+                source_type="user_upload",
+                access_method="query_user_dataset",
+                geometry_type=("Point" if kind == "points"
+                               else "geometry" if kind == "geometries" else None),
+                crs="EPSG:4326 (assumed)" if kind != "table" else None,
+                fields=u.get("fields", []),
+                available=True,
+                extra={"upload": u},
+            )
+    except Exception:
+        pass  # uploads are optional; never break the built-in registry
     return registry
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -12,6 +13,8 @@ from .results import ResultStore, build_final_response, new_query_id
 from .tools.registry import build_tool_registry
 
 EventSink = Optional[Callable[[Dict[str, Any]], None]]
+
+log = logging.getLogger(__name__)
 
 # Query modes. Research and spatial run the full plan→execute pipeline (the
 # UI emphasises map vs. write-up); data skips the LLM analysis rewrite and
@@ -28,6 +31,7 @@ class GeospatialAgent:
 
     def ask(self, query: str, *, mode: str = "research",
             history: Optional[List[Dict[str, str]]] = None,
+            aims: str = "",
             on_event: EventSink = None) -> Dict[str, Any]:
         """Run a natural-language query end to end."""
         t0 = time.time()
@@ -80,6 +84,22 @@ class GeospatialAgent:
         response = self.orchestrator.execute(plan, query_id=query_id, on_event=on_event)
         response["timingMs"] = int((time.time() - t0) * 1000)
         response.setdefault("execution", {})["mode"] = mode
+        if aims:
+            response["execution"]["aims"] = aims
+
+        # Research mode produces a paper-style report (abstract, aims,
+        # methods, results, discussion, conclusion, references) alongside the
+        # standard result. Deterministic sections derive from the validated
+        # plan and execution record; only abstract/discussion/conclusion use
+        # one grounded LLM call (with offline fallback).
+        if mode == "research" and response.get("status") == "completed":
+            from .paper import build_paper
+
+            try:
+                response["paper"] = build_paper(query, aims, plan, response)
+                emit({"type": "paper", "paper": response["paper"]})
+            except Exception as exc:
+                log.warning("paper build failed: %s", exc)
 
         # Optional LLM-written explanation pass (only for knowledge/combined
         # answers; GIS summaries already come from the orchestrator). Skipped
@@ -190,10 +210,11 @@ class GeospatialAgent:
             return None
 
     def answer_stream(self, query: str, *, mode: str = "research",
-                      history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+                      history: Optional[List[Dict[str, str]]] = None,
+                      aims: str = "") -> Dict[str, Any]:
         """Non-streaming response plus the event log (for the HTTP layer)."""
         events: List[Dict[str, Any]] = []
-        response = self.ask(query, mode=mode, history=history,
+        response = self.ask(query, mode=mode, history=history, aims=aims,
                             on_event=events.append)
         response["events"] = events
         return response

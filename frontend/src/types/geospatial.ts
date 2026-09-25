@@ -125,6 +125,39 @@ export interface TableResult {
   truncated?: boolean
 }
 
+/** A research-paper-style report assembled by the backend (research mode). */
+export interface ResearchPaper {
+  title: string
+  abstract?: string
+  aims?: string[]
+  data?: Array<{ dataset?: string }>
+  methods?: string[]
+  results?: {
+    layers?: Array<{ title?: string; count?: number; dataset?: string }>
+    tables?: Array<{ title?: string; row_count?: number }>
+    findings?: string
+  }
+  discussion?: string
+  conclusion?: string
+  limitations?: string[]
+  references?: KnowledgeReference[]
+  reproducibility?: Record<string, string | string[] | number | null>
+  llm_grounded?: boolean
+  markdown?: string
+}
+
+/** A dataset entry from GET /api/datasets (built-in or user-uploaded). */
+export interface DatasetEntry {
+  name: string
+  description: string
+  source_type: string
+  access_method: string
+  geometry_type?: string | null
+  crs?: string | null
+  fields?: string[]
+  available: boolean
+}
+
 export interface BoundingBox {
   west: number
   south: number

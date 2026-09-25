@@ -21,7 +21,7 @@ const MAX_LENGTH = 500
  * `MapContextChip`), which is the same seam a future drawn polygon would use.
  */
 export function QueryPanel() {
-  const { draft, setDraft, fillDraft, focusRequest, mode, query } = useQueryState()
+  const { draft, setDraft, fillDraft, focusRequest, mode, aims, query } = useQueryState()
   const { run, isRunning, submit, cancel } = query
   const { getBounds, getCenter, getZoom } = useMapState()
 
@@ -49,7 +49,7 @@ export function QueryPanel() {
       mapBounds: bounds ?? undefined,
       mapCenter: center ?? undefined,
       mapZoom: zoom ?? undefined,
-    }, { mode })
+    }, { mode, aims: mode === 'research' ? aims : undefined })
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -79,11 +79,11 @@ export function QueryPanel() {
       className="shrink-0"
     >
       <div className="border border-line-strong bg-panel focus-within:border-accent">
-        <label className="sr-only" htmlFor="geoscope-query">
+        <label className="sr-only" htmlFor="weis-query">
           Ask a question about the geographic data
         </label>
         <textarea
-          id="geoscope-query"
+          id="weis-query"
           ref={textareaRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value.slice(0, MAX_LENGTH))}

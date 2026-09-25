@@ -242,7 +242,7 @@ export function buildLabelLayer(result: GeographicResult, maxLabels = 300): L.La
       interactive: false,
       keyboard: false,
       icon: L.divIcon({
-        className: 'geoscope-label',
+        className: 'weis-label',
         html: escapeHtml(name),
         iconSize: undefined,
       }),

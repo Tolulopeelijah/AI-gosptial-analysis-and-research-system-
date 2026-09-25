@@ -1,9 +1,13 @@
-# Geospatial AI Agent Core
+# WEIS — Water Intelligence and Environmental Stewardship
 
 Research-oriented **natural-language geospatial agent**: a user asks a geographic
 question, the agent understands and decomposes it, selects datasets and tools,
 executes GIS operations deterministically, merges intermediate results, and
 returns map-ready geographic output — with an optional NCWQR knowledge pathway.
+
+Research mode reports read as short papers (abstract, aims, methods, results,
+discussion, conclusion, references); users can upload their own CSV/GeoJSON/XLSX
+datasets, which become queryable by name alongside the built-ins.
 
 ## 1. Purpose
 
@@ -203,9 +207,9 @@ default `research`) and, for chat, `history` (recent `{role, content}` turns):
 | Mode | Backend | UI |
 |---|---|---|
 | `chat` | Pipeline + history-aware planning/explanation, follow-ups resolve | Thread + composer; map is a 140px strip |
-| `research` | Full plan → execute → explain + references (current behavior) | Composer + full dock; compact 300px map |
+| `research` | Full plan → execute → explain + references (current behavior) | Aims box + composer; paper report in the dock; compact 300px map |
 | `spatial` | Same pipeline as research | Map takes the room (min 320px, grows) |
-| `data` | Pipeline, but no LLM analysis rewrite; raw `tables` (+ layers) for download | Compact map; Data panel with CSV/GeoJSON export |
+| `data` | Pipeline, but no LLM analysis rewrite; raw `tables` (+ layers) for download | Compact map; Data panel with CSV/GeoJSON export; dataset upload lives here |
 
 Tables are capped at 200 rows per response (`row_count` + `truncated` tell the
 full story); downloads are generated client-side from bytes already received.

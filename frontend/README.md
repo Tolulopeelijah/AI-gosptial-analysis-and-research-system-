@@ -1,4 +1,4 @@
-# Geoscope
+# WEIS
 
 A research-oriented frontend for a geospatial AI system. You ask a question in
 natural language; an agent resolves it into datasets and GIS operations and the

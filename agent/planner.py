@@ -78,6 +78,9 @@ Respond with ONLY the JSON plan object."""
 def _tool_catalog(registry) -> Tuple[List[Dict[str, Any]], List[str]]:
     from .tools.data.arcgis import QUERY_ARCGIS_REQUIRED, QUERY_ARCGIS_SCHEMA
     from .tools.data.xlsx import QUERY_MAUMEE_REQUIRED, QUERY_MAUMEE_SCHEMA
+    from .tools.data.uploads import (
+        QUERY_USER_DATASET_REQUIRED, QUERY_USER_DATASET_SCHEMA,
+    )
     from .tools.gis.operations import (
         BUFFER_REQUIRED, BUFFER_SCHEMA, INTERSECT_REQUIRED, INTERSECT_SCHEMA,
         NEAREST_REQUIRED, NEAREST_SCHEMA,
@@ -93,6 +96,8 @@ def _tool_catalog(registry) -> Tuple[List[Dict[str, Any]], List[str]]:
          "args": QUERY_ARCGIS_SCHEMA, "required": QUERY_ARCGIS_REQUIRED},
         {"name": "query_maumee", "use": "tabular Maumee water-quality observations/summaries",
          "args": QUERY_MAUMEE_SCHEMA, "required": QUERY_MAUMEE_REQUIRED},
+        {"name": "query_user_dataset", "use": "features/rows from a user-uploaded dataset by registered name",
+         "args": QUERY_USER_DATASET_SCHEMA, "required": QUERY_USER_DATASET_REQUIRED},
         {"name": "buffer", "use": "buffer a FeatureCollection result by distance",
          "args": BUFFER_SCHEMA, "required": BUFFER_REQUIRED},
         {"name": "intersect", "use": "features of A intersecting B",
@@ -179,7 +184,7 @@ class OpenAIPlanner:
             raise ValueError("planner output is not a plan object")
         registry = build_registry()
         known_tools = {
-            "query_arcgis", "query_maumee", "buffer", "intersect", "nearest",
+            "query_arcgis", "query_maumee", "query_user_dataset", "buffer", "intersect", "nearest",
             "search_knowledge_base", "list_datasets", "describe_dataset",
         }
         raw_steps = data.get("steps", [])
@@ -278,7 +283,14 @@ class RulePlanner:
 
         steps: List[PlanStep] = []
         kind = "gis"
-        if wants_maumee and not (wants_septic or wants_flood):
+        user_match = self._user_dataset_match(q.lower(), registry)
+        if user_match:
+            steps = self._user_data_steps(
+                q, user_match, registry, avail, wants_septic, wants_flood,
+                wants_knowledge)
+            if any(s.tool == "search_knowledge_base" for s in steps):
+                kind = "combined"
+        elif wants_maumee and not (wants_septic or wants_flood):
             param = self._param(q)
             operation = "extremes" if _EXTREMES_RE.search(q) else "summary"
             steps = [PlanStep(id="maumee", tool="query_maumee",
@@ -343,13 +355,66 @@ class RulePlanner:
                     "reason": "No executable steps could be derived from this query."}
         plan = validate_plan(
             ExecutionPlan(goal=q, steps=steps),
-            known_tools={"query_arcgis", "query_maumee", "buffer", "intersect",
+            known_tools={"query_arcgis", "query_maumee", "query_user_dataset", "buffer", "intersect",
                          "nearest", "search_knowledge_base", "list_datasets",
                          "describe_dataset"},
             known_datasets=set(registry),
             gis_result_tools=GIS_RESULT_TOOLS,
         )
         return {"plan": plan, "kind": kind, "reason": ""}
+
+    @staticmethod
+    def _user_dataset_match(query_lower: str, registry) -> Optional[str]:
+        """Match an uploaded dataset by its registered name."""
+        for name, info in registry.items():
+            if info.source_type != "user_upload" or not info.available:
+                continue
+            spoken = name.replace("_", " ")
+            if spoken in query_lower or name in query_lower.replace(" ", "_"):
+                return name
+        return None
+
+    def _user_data_steps(self, q: str, dataset: str, registry, avail,
+                         wants_septic: bool, wants_flood: bool,
+                         wants_knowledge: bool) -> List[PlanStep]:
+        """Retrieval of an uploaded dataset, optionally intersected/buffered
+        against one other spatial dataset using the same pattern as the
+        built-in septic/floodplain branch."""
+        steps = [PlanStep(id="user_data", tool="query_user_dataset",
+                          arguments={"dataset": dataset}, depends_on=[])]
+        others = []
+        if wants_septic and "septic_systems" in avail:
+            others.append(("septic", "septic_systems"))
+        if wants_flood and "floodplains" in avail:
+            others.append(("floodplains", "floodplains"))
+        for oid, ds in others:
+            steps.append(PlanStep(id=oid, tool="query_arcgis",
+                                  arguments={"dataset": ds}, depends_on=[]))
+        if others:
+            dist = _DISTANCE_RE.search(q)
+            needs_gis = ("intersect" in q.lower() or "near" in q.lower()
+                         or "within" in q.lower())
+            oid = others[0][0]
+            if dist:
+                val, unit = float(dist.group(1)), dist.group(2).lower()
+                steps.append(PlanStep(
+                    id="buffer", tool="buffer",
+                    arguments={"input": f"${oid}", "distance": val,
+                               "unit": self._norm_unit(unit)},
+                    depends_on=[oid]))
+                steps.append(PlanStep(
+                    id="result", tool="intersect",
+                    arguments={"input_a": "$user_data", "input_b": "$buffer"},
+                    depends_on=["user_data", "buffer"]))
+            elif needs_gis:
+                steps.append(PlanStep(
+                    id="result", tool="intersect",
+                    arguments={"input_a": "$user_data", "input_b": f"${oid}"},
+                    depends_on=["user_data", oid]))
+        if wants_knowledge:
+            steps.append(PlanStep(id="kb", tool="search_knowledge_base",
+                                  arguments={"query": q}, depends_on=[]))
+        return steps
 
     @staticmethod
     def _param(q: str) -> str | None:

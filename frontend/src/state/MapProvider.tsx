@@ -21,7 +21,7 @@ import type { BasemapDefinition, BasemapId, LayerVisibility, MapPreferences } fr
  * (draw a polygon, click a county) another method on the same interface.
  */
 
-const STORAGE_KEY = 'geoscope.map.v1'
+const STORAGE_KEY = 'weis.map.v1'
 
 const DEFAULT_PREFERENCES: MapPreferences = {
   basemap: DEFAULT_BASEMAP,

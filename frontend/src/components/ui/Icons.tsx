@@ -141,6 +141,26 @@ export function ChatIcon(props: IconProps) {
   )
 }
 
+export function DocumentIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6 3h8l4 4v14H6V3Z" />
+      <path d="M14 3v4h4" />
+      <path d="M9 12h6M9 16h6" />
+    </Icon>
+  )
+}
+
+export function UploadIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 15V4" />
+      <path d="m7 8 5-5 5 5" />
+      <path d="M4 20h16" />
+    </Icon>
+  )
+}
+
 export function DownloadIcon(props: IconProps) {
   return (
     <Icon {...props}>

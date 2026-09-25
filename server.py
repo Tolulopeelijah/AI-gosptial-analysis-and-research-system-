@@ -47,12 +47,51 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.get("/api/datasets")
+def list_datasets():
+    from agent.registry import available_datasets, build_registry
+
+    reg = build_registry()
+    return jsonify({
+        "datasets": [ds.to_dict() for ds in reg.values()],
+        "available": available_datasets(reg),
+    })
+
+
+@app.post("/api/datasets/upload")
+def upload_dataset():
+    from agent.uploads import ingest_upload
+
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "no file part; send multipart 'file'"}), 400
+    upload = request.files["file"]
+    if not upload.filename:
+        return jsonify({"ok": False, "error": "empty filename"}), 400
+    result = ingest_upload(upload.filename, upload.read())
+    return jsonify(result), (200 if result.get("ok") else 400)
+
+
+@app.delete("/api/datasets/<name>")
+def delete_dataset(name: str):
+    from agent.registry import build_registry
+    from agent.uploads import delete_upload
+
+    reg = build_registry()
+    info = reg.get(name)
+    if info is None or info.source_type != "user_upload":
+        return jsonify({"ok": False,
+                        "error": f"'{name}' is not a user-uploaded dataset"}), 404
+    result = delete_upload(name)
+    return jsonify(result), (200 if result.get("ok") else 400)
+
+
 @app.post("/query")
 def query():
     body = request.get_json(force=True, silent=True) or {}
     text = (body.get("query") or "").strip()
     mode = (body.get("mode") or "research").strip()
     history = body.get("history") or []
+    aims = (body.get("aims") or "").strip() if isinstance(body.get("aims"), str) else ""
     wants_sse = "text/event-stream" in (request.headers.get("Accept") or "")
 
     if wants_sse:
@@ -65,7 +104,7 @@ def query():
 
             # Collect-then-stream: execution is fast and this keeps ordering exact.
             collected: list = []
-            response = agent.ask(text, mode=mode, history=history,
+            response = agent.ask(text, mode=mode, history=history, aims=aims,
                                  on_event=collected.append)
             yield f"data: {json.dumps({'type': 'query_received', 'queryId': response['queryId']})}\n\n"
             for event in collected:
@@ -84,7 +123,7 @@ def query():
 
         return Response(generate(), mimetype="text/event-stream")
 
-    response = agent.answer_stream(text, mode=mode, history=history)
+    response = agent.answer_stream(text, mode=mode, history=history, aims=aims)
     return jsonify(response)
 
 

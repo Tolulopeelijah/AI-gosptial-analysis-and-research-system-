@@ -61,7 +61,8 @@ def validate_plan(
         dataset = step.arguments.get("dataset")
         if (
             dataset is not None
-            and step.tool in {"query_arcgis", "query_maumee", "describe_dataset"}
+            and step.tool in {"query_arcgis", "query_maumee", "query_user_dataset",
+                              "describe_dataset"}
             and dataset not in known_datasets
         ):
             raise PlanValidationError(

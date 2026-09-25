@@ -9,6 +9,9 @@ from .data.arcgis import (
 from .data.xlsx import (
     QUERY_MAUMEE_REQUIRED, QUERY_MAUMEE_SCHEMA, query_maumee,
 )
+from .data.uploads import (
+    QUERY_USER_DATASET_REQUIRED, QUERY_USER_DATASET_SCHEMA, query_user_dataset,
+)
 from .gis.operations import (
     BUFFER_REQUIRED, BUFFER_SCHEMA, INTERSECT_REQUIRED, INTERSECT_SCHEMA,
     NEAREST_REQUIRED, NEAREST_SCHEMA, buffer, intersect, nearest,
@@ -33,6 +36,10 @@ def build_tool_registry() -> ToolRegistry:
                       "records, summaries, daily means, or schema. Tabular only.",
                       QUERY_MAUMEE_SCHEMA, query_maumee,
                       category="data", required=QUERY_MAUMEE_REQUIRED))
+    reg.register(Tool("query_user_dataset", "Retrieve features or rows from a "
+                      "user-uploaded dataset by registered name (see list_datasets).",
+                      QUERY_USER_DATASET_SCHEMA, query_user_dataset,
+                      category="data", required=QUERY_USER_DATASET_REQUIRED))
     reg.register(Tool("buffer", "Buffer a FeatureCollection result by a distance "
                     "(CRS-aware; metres-based). Input is a $step_id reference.",
                     BUFFER_SCHEMA, buffer,

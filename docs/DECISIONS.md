@@ -257,7 +257,6 @@ chat replaces the rail tabs with a thread + pinned composer (turns stored
 client-side, history sent per request).
 
 ## H. Tabular extremes and parameter recognition
-
 ### D31 — "When was X highest" needs dates, full names, and table grounding
 A real user query ("when was total suspended solids the highest?") failed
 three ways at once: (1) the planner only recognised the code `TSS`, not the
@@ -274,3 +273,33 @@ values; tables became citable `[T#]` sources (orchestrator labels, prompt
 includes row values, grounding validates `S` and `T` markers). Verified live:
 TSS highest = 2454.1 mg/L on 1990-02-23, cross-checked against an independent
 pandas read.
+
+## I. Identity, uploads, and paper output
+
+### D32 — Renamed Geoscope → WEIS
+System name is now WEIS (Water Intelligence and Environmental Stewardship)
+across UI copy, package metadata, page title, and storage keys (one-time
+local reset of history/map prefs accepted). No backend references existed.
+
+### D33 — User uploads become first-class datasets
+`POST /api/datasets/upload` (CSV/GeoJSON/XLSX, 25 MB cap) ingests via
+`agent/uploads.py` into `data/uploads/` + `registry.json`. CSV/XLSX with
+latitude/longitude-like columns materialise to GeoJSON points at ingest so
+the query path reads one format; anything else stays tabular. Coordinates are
+assumed EPSG:4326, recorded as `crs_assumed` on every entry. `build_registry`
+merges uploads as `query_user_dataset` entries (5,000-row ingest cap noted);
+the rule planner matches them by registered name and reuses the
+buffer/intersect pattern against built-in layers; `list/describe_dataset`
+cover them; `DELETE /api/datasets/<name>` is restricted to uploads. Rationale:
+asking users to hand over files without making them queryable would strand
+their data outside the agent.
+
+### D34 — Research mode writes a paper, aims in, markdown out
+`POST /query` accepts `aims` (one per line; research mode). On completion,
+`agent/paper.py` assembles title/aims/data/methods/results/limitations/
+reproducibility deterministically from the validated plan and execution
+record, and generates only abstract/discussion/conclusion via one grounded
+LLM call (offline fallback clearly labelled). Markers re-validated; response
+carries `paper` + `paper_markdown`; the UI renders a PaperPanel with Markdown
+download. Rationale: methods/results must be incapable of hallucination by
+construction, while prose stays cited.

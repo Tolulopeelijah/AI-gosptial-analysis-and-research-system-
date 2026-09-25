@@ -3,6 +3,7 @@ import type {
   GeographicResult,
   KnowledgeReference,
   QueryContext,
+  ResearchPaper,
   TableResult,
 } from './geospatial'
 
@@ -35,6 +36,8 @@ export interface QueryRequest {
   context?: QueryContext
   mode?: QueryMode
   history?: ChatMessage[]
+  /** Research aims/objectives (research mode). */
+  aims?: string
 }
 
 export interface QueryResponse {
@@ -53,6 +56,8 @@ export interface QueryResponse {
   references?: KnowledgeReference[]
   /** Tabular outputs, for display and download. */
   tables?: TableResult[]
+  /** Research-paper report (research mode). */
+  paper?: ResearchPaper
 }
 
 /** Options accepted by `submitGeospatialQuery`. */
@@ -66,6 +71,8 @@ export interface SubmitOptions {
   mode?: QueryMode
   /** Recent conversation turns (used in `chat` mode for follow-ups). */
   history?: ChatMessage[]
+  /** Research aims/objectives (used in `research` mode). */
+  aims?: string
 }
 
 export interface SubmitHandle {
@@ -117,6 +124,8 @@ export interface QueryRun {
   references?: KnowledgeReference[]
   /** Tabular outputs from the last run. */
   tables?: TableResult[]
+  /** Research-paper report from the last run (research mode). */
+  paper?: ResearchPaper
   /** Message lines that are not steps, e.g. the planner's narration. */
   messages: string[]
   startedAt?: number

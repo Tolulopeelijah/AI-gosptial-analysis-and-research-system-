@@ -1,5 +1,10 @@
 import type { AgentEvent } from '@/types/agent'
-import type { GeographicResult, KnowledgeReference, TableResult } from '@/types/geospatial'
+import type {
+  GeographicResult,
+  KnowledgeReference,
+  ResearchPaper,
+  TableResult,
+} from '@/types/geospatial'
 import type { QueryRequest, QueryResponse, SubmitHandle, SubmitOptions } from '@/types/query'
 
 /**
@@ -36,6 +41,7 @@ interface AccumulatedRun {
   count?: number
   references?: KnowledgeReference[]
   tables?: TableResult[]
+  paper?: ResearchPaper
   error?: QueryResponse['error']
   queryId: string
   sawTerminalEvent: boolean
@@ -89,6 +95,7 @@ export function createHttpGeospatialApi(options: HttpGeospatialApiOptions) {
             context: request.context,
             mode: request.mode ?? submitOptions.mode ?? 'research',
             history: request.history ?? submitOptions.history,
+            aims: request.aims ?? submitOptions.aims,
           }),
         })
 
@@ -135,6 +142,7 @@ export function createHttpGeospatialApi(options: HttpGeospatialApiOptions) {
           count: run.count ?? run.results.reduce((sum, result) => sum + (result.metadata?.count ?? 0), 0),
           references: run.references,
           tables: run.tables,
+          paper: run.paper,
           error: run.error,
           timingMs: Date.now() - startedAt,
         }
@@ -166,6 +174,10 @@ function accumulate(run: AccumulatedRun, event: AgentEvent): void {
       run.count = event.count ?? run.count
       run.references = event.references ?? run.references
       run.tables = event.tables ?? run.tables
+      run.paper = event.paper ?? run.paper
+      return
+    case 'paper':
+      run.paper = event.paper
       return
     case 'error':
       run.sawTerminalEvent = true

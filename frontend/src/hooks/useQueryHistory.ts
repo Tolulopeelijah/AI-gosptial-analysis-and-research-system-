@@ -13,7 +13,7 @@ import type { GeoQueryError } from '@/types/agent'
  * offers a re-run.
  */
 
-const STORAGE_KEY = 'geoscope.history.v1'
+const STORAGE_KEY = 'weis.history.v1'
 const MAX_ENTRIES = 30
 
 function isHistoryEntry(value: unknown): value is QueryHistoryEntry {

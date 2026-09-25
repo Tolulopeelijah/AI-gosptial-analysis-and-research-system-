@@ -60,6 +60,9 @@ function reducer(state: QueryRun, action: Action): QueryRun {
         case 'planning':
           next.messages = [...state.messages, event.message]
           break
+        case 'paper':
+          next.paper = event.paper
+          break
         case 'result':
           next.results = [...state.results, event.data]
           break
@@ -79,6 +82,7 @@ function reducer(state: QueryRun, action: Action): QueryRun {
           next.count = event.count ?? state.count
           next.references = event.references ?? state.references
           next.tables = event.tables ?? state.tables
+          next.paper = event.paper ?? state.paper
           break
         default:
           break
@@ -110,6 +114,7 @@ function reducer(state: QueryRun, action: Action): QueryRun {
         count: response.count ?? state.count,
         references: response.references ?? state.references,
         tables: response.tables ?? state.tables,
+        paper: response.paper ?? state.paper,
         error: undefined,
         finishedAt: action.at,
       }
@@ -172,6 +177,7 @@ export interface UseGeospatialQueryResult {
 export interface SubmitRequestOptions {
   mode?: QueryMode
   history?: ChatMessage[]
+  aims?: string
 }
 
 export interface UseGeospatialQueryOptions {
@@ -200,6 +206,7 @@ export function useGeospatialQuery(options: UseGeospatialQueryOptions = {}): Use
       context,
       mode: opts?.mode,
       history: opts?.history,
+      aims: opts?.aims,
       onEvent: (event) => dispatch({ type: 'event', event }),
     })
     handleRef.current = handle

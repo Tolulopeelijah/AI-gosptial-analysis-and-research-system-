@@ -469,3 +469,69 @@ def test_rule_planner_full_parameter_names():
         outcome = RulePlanner().plan(text)
         assert outcome["plan"] is not None, text
         assert outcome["plan"].steps[0].arguments.get("parameter") == code, text
+
+
+# ---------------------------------------------------------------- uploads ---
+
+def _upload_csv(name="Test Wells.csv"):
+    from agent.uploads import ingest_upload
+
+    csv = "name,lat,lon,value\nA,41.60,-83.70,1\nB,41.61,-83.71,2\n"
+    return ingest_upload(name, csv.encode())
+
+
+def test_upload_csv_points_ingest_and_query():
+    from agent.tools.data.uploads import query_user_dataset
+    from agent.uploads import delete_upload
+
+    r = _upload_csv()
+    try:
+        assert r["ok"], r
+        ds = r["dataset"]
+        assert ds["kind"] == "points" and ds["count"] == 2
+        q = query_user_dataset(ds["name"])
+        assert q["ok"] and q["type"] == "FeatureCollection" and q["count"] == 2
+        qb = query_user_dataset(ds["name"], bbox="-84.0,41.0,-83.705,42.0")
+        assert qb["ok"] and qb["count"] == 1
+    finally:
+        delete_upload(r["dataset"]["name"])
+
+
+def test_upload_rejects_bad_type_and_registers_for_planning():
+    from agent.registry import build_registry
+    from agent.uploads import ingest_upload
+
+    bad = ingest_upload("evil.exe", b"MZ...")
+    assert not bad["ok"]
+    r = _upload_csv("Farm Ponds.csv")
+    try:
+        reg = build_registry()
+        assert reg["farm_ponds"].access_method == "query_user_dataset"
+        assert "farm_ponds" in reg and reg["farm_ponds"].available
+        from agent.planner import RulePlanner
+
+        outcome = RulePlanner().plan("Show my farm ponds dataset")
+        assert outcome["plan"] is not None
+        assert outcome["plan"].steps[0].tool == "query_user_dataset"
+    finally:
+        from agent.uploads import delete_upload
+
+        delete_upload("farm_ponds")
+
+
+def test_research_paper_structure_and_aims():
+    from agent.agent import GeospatialAgent
+    from agent.planner import RulePlanner
+
+    agent = GeospatialAgent()
+    agent.planner = RulePlanner()
+    resp = agent.ask("Find septic systems that intersect floodplain areas.",
+                     mode="research",
+                     aims="1. Map exposure\n2. Prioritise inspections")
+    paper = resp.get("paper")
+    assert paper, "research mode must return a paper"
+    assert paper["aims"] == ["Map exposure", "Prioritise inspections"]
+    assert paper["methods"] and paper["results"]["layers"]
+    assert isinstance(paper["references"], list) and paper["limitations"]
+    assert paper["markdown"].startswith("# ")
+    assert "## Methods" in paper["markdown"] and "## Results" in paper["markdown"]

@@ -1,5 +1,5 @@
 import type { AgentEvent } from '@/types/agent'
-import type { GeographicResult, KnowledgeReference } from '@/types/geospatial'
+import type { GeographicResult, KnowledgeReference, TableResult } from '@/types/geospatial'
 import type { QueryRequest, QueryResponse, SubmitHandle, SubmitOptions } from '@/types/query'
 
 /**
@@ -35,6 +35,7 @@ interface AccumulatedRun {
   dataset?: string
   count?: number
   references?: KnowledgeReference[]
+  tables?: TableResult[]
   error?: QueryResponse['error']
   queryId: string
   sawTerminalEvent: boolean
@@ -83,7 +84,12 @@ export function createHttpGeospatialApi(options: HttpGeospatialApiOptions) {
             Accept: 'text/event-stream, application/json',
             ...options.headers,
           },
-          body: JSON.stringify({ query: request.query, context: request.context }),
+          body: JSON.stringify({
+            query: request.query,
+            context: request.context,
+            mode: request.mode ?? submitOptions.mode ?? 'research',
+            history: request.history ?? submitOptions.history,
+          }),
         })
 
         if (!httpResponse.ok) {
@@ -112,6 +118,10 @@ export function createHttpGeospatialApi(options: HttpGeospatialApiOptions) {
         const run: AccumulatedRun = { results: [], queryId, sawTerminalEvent: false }
 
         for await (const event of readEventStream(httpResponse.body, signal)) {
+          // The streamed query_received frame carries the real run id; without
+          // this every SSE run keeps queryId '' and the settled-guard treats
+          // all follow-ups as duplicates of the first run.
+          if (event.type === 'query_received' && event.queryId) queryId = event.queryId
           submitOptions.onEvent?.(event)
           accumulate(run, event)
         }
@@ -124,6 +134,7 @@ export function createHttpGeospatialApi(options: HttpGeospatialApiOptions) {
           dataset: run.dataset,
           count: run.count ?? run.results.reduce((sum, result) => sum + (result.metadata?.count ?? 0), 0),
           references: run.references,
+          tables: run.tables,
           error: run.error,
           timingMs: Date.now() - startedAt,
         }
@@ -154,6 +165,7 @@ function accumulate(run: AccumulatedRun, event: AgentEvent): void {
       run.dataset = event.dataset ?? run.dataset
       run.count = event.count ?? run.count
       run.references = event.references ?? run.references
+      run.tables = event.tables ?? run.tables
       return
     case 'error':
       run.sawTerminalEvent = true

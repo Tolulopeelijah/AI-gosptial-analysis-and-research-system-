@@ -1,4 +1,4 @@
-import type { GeographicResult, KnowledgeReference } from './geospatial'
+import type { GeographicResult, KnowledgeReference, TableResult } from './geospatial'
 
 /**
  * Events the orchestration/agent layer emits while a query runs.
@@ -37,6 +37,7 @@ export type AgentEvent =
       dataset?: string
       count?: number
       references?: KnowledgeReference[]
+      tables?: TableResult[]
     }
   | { type: 'error'; code: GeoErrorCode; message: string; detail?: string; hint?: string }
 

@@ -15,9 +15,11 @@ changes when full texts arrive. Companion to `docs/DECISIONS.md` (D13–D17).
 | `url` | Resolvable link (DOI URL, page URL, or empty) |
 | `content` | The retrievable passage text |
 
-Current contents: 2 workbook-fact entries, 2 page-scope entries, 13 selected
-publications, 1 labelled synthesis. Publication topic lines are paraphrased
-strictly from paper titles; no findings are asserted beyond the citation.
+Current contents (317 entries): 2 workbook-fact entries, 2 page-scope
+entries, 179 lab + 133 derived full-page citation ingests
+(`scripts/ingest_ncwqr.py`, re-runnable), 1 labelled synthesis. Publication
+text is the verbatim citation plus year — titles/authors/DOIs exactly as the
+pages carry them; no paraphrase, no asserted findings.
 
 ## 2. Chunking method (current): none — whole-entry retrieval
 

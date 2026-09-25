@@ -21,7 +21,7 @@ const MAX_LENGTH = 500
  * `MapContextChip`), which is the same seam a future drawn polygon would use.
  */
 export function QueryPanel() {
-  const { draft, setDraft, fillDraft, focusRequest, query } = useQueryState()
+  const { draft, setDraft, fillDraft, focusRequest, mode, query } = useQueryState()
   const { run, isRunning, submit, cancel } = query
   const { getBounds, getCenter, getZoom } = useMapState()
 
@@ -49,7 +49,7 @@ export function QueryPanel() {
       mapBounds: bounds ?? undefined,
       mapCenter: center ?? undefined,
       mapZoom: zoom ?? undefined,
-    })
+    }, { mode })
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {

@@ -2,8 +2,14 @@ import { useCallback, useMemo, useReducer, useRef } from 'react'
 import { applyAgentEvent } from '@/services/agentSteps'
 import { submitGeospatialQuery } from '@/services/geospatialApi'
 import type { AgentEvent, GeoQueryError } from '@/types/agent'
-import type { GeographicResult, QueryContext } from '@/types/geospatial'
-import type { QueryHistoryStatus, QueryResponse, QueryRun } from '@/types/query'
+import type { GeographicResult, QueryContext, TableResult } from '@/types/geospatial'
+import type {
+  ChatMessage,
+  QueryHistoryStatus,
+  QueryMode,
+  QueryResponse,
+  QueryRun,
+} from '@/types/query'
 
 /**
  * Owns the lifecycle of a single query run.
@@ -47,6 +53,7 @@ function reducer(state: QueryRun, action: Action): QueryRun {
       const steps = applyAgentEvent(state.steps, event)
       const next: QueryRun = { ...state, steps }
 
+      if (event.type === 'query_received' && event.queryId) next.queryId = event.queryId
       if (state.status === 'submitted') next.status = 'processing'
 
       switch (event.type) {
@@ -71,6 +78,7 @@ function reducer(state: QueryRun, action: Action): QueryRun {
           next.dataset = event.dataset ?? state.dataset
           next.count = event.count ?? state.count
           next.references = event.references ?? state.references
+          next.tables = event.tables ?? state.tables
           break
         default:
           break
@@ -101,6 +109,7 @@ function reducer(state: QueryRun, action: Action): QueryRun {
         dataset: response.dataset ?? state.dataset,
         count: response.count ?? state.count,
         references: response.references ?? state.references,
+        tables: response.tables ?? state.tables,
         error: undefined,
         finishedAt: action.at,
       }
@@ -146,16 +155,23 @@ export interface SubmitOutcome {
   dataset?: string
   durationMs?: number
   errorCode?: GeoQueryError['code']
+  references?: QueryResponse['references']
+  tables?: TableResult[]
 }
 
 export interface UseGeospatialQueryResult {
   run: QueryRun
   isRunning: boolean
-  submit: (query: string, context?: QueryContext) => void
+  submit: (query: string, context?: QueryContext, opts?: SubmitRequestOptions) => void
   cancel: () => void
   reset: () => void
   /** Restores a previous run's results onto the map without re-querying. */
   restore: (run: Partial<QueryRun> & { query: string }) => void
+}
+
+export interface SubmitRequestOptions {
+  mode?: QueryMode
+  history?: ChatMessage[]
 }
 
 export interface UseGeospatialQueryOptions {
@@ -172,7 +188,7 @@ export function useGeospatialQuery(options: UseGeospatialQueryOptions = {}): Use
 
   const isRunning = run.status === 'submitted' || run.status === 'processing'
 
-  const submit = useCallback((query: string, context?: QueryContext) => {
+  const submit = useCallback((query: string, context?: QueryContext, opts?: SubmitRequestOptions) => {
     const trimmed = query.trim()
     if (!trimmed) return
 
@@ -182,6 +198,8 @@ export function useGeospatialQuery(options: UseGeospatialQueryOptions = {}): Use
     const startedAt = Date.now()
     const handle = submitGeospatialQuery(trimmed, {
       context,
+      mode: opts?.mode,
+      history: opts?.history,
       onEvent: (event) => dispatch({ type: 'event', event }),
     })
     handleRef.current = handle
@@ -206,6 +224,8 @@ export function useGeospatialQuery(options: UseGeospatialQueryOptions = {}): Use
           dataset: response.dataset,
           durationMs: response.timingMs ?? Date.now() - startedAt,
           errorCode: response.error?.code,
+          references: response.references,
+          tables: response.tables,
         })
       })
       .catch((error: unknown) => {

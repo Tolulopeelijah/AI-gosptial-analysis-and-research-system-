@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -13,7 +14,13 @@ import {
   type UseGeospatialQueryResult,
 } from '@/hooks/useGeospatialQuery'
 import { useHistoryState } from './HistoryProvider'
-import type { QueryHistoryEntry, QueryRun } from '@/types/query'
+import type {
+  ChatMessage,
+  ChatTurn,
+  QueryHistoryEntry,
+  QueryMode,
+  QueryRun,
+} from '@/types/query'
 
 /**
  * The current query run, plus the wiring that records finished runs into
@@ -38,6 +45,14 @@ export interface QueryContextValue {
    * in which case the caller should offer a re-run instead.
    */
   restoreEntry: (entry: QueryHistoryEntry) => boolean
+  /** Handling mode for the next query. */
+  mode: QueryMode
+  setMode: (mode: QueryMode) => void
+  /** Conversational turns (chat mode only), oldest first. */
+  chatTurns: ChatTurn[]
+  /** History payload sent with chat follow-ups. */
+  chatHistory: ChatMessage[]
+  clearChat: () => void
 }
 
 const QueryContext = createContext<QueryContextValue | null>(null)
@@ -48,6 +63,10 @@ export function QueryProvider({ children }: { children: ReactNode }) {
   const { record } = history
   const [draft, setDraft] = useState('')
   const [focusRequest, setFocusRequest] = useState(0)
+  const [mode, setMode] = useState<QueryMode>('research')
+  const [chatTurns, setChatTurns] = useState<ChatTurn[]>([])
+  const modeRef = useRef<QueryMode>('research')
+  modeRef.current = mode
 
   const query = useGeospatialQuery({
     onSettled: (text, outcome) => {
@@ -61,6 +80,25 @@ export function QueryProvider({ children }: { children: ReactNode }) {
         durationMs: outcome.durationMs,
         errorCode: outcome.errorCode,
       })
+      if (modeRef.current === 'chat') {
+        const answer =
+          outcome.status === 'cancelled'
+            ? 'Cancelled.'
+            : outcome.status === 'failed'
+              ? 'That failed — try rephrasing, or switch to research mode for the full pipeline.'
+              : (outcome.explanation ?? 'Done.')
+        setChatTurns((turns) => [
+          ...turns,
+          {
+            query: text,
+            answer,
+            references: outcome.references,
+            dataset: outcome.dataset,
+            count: outcome.resultCount,
+            errorCode: outcome.status === 'failed' ? outcome.errorCode : undefined,
+          },
+        ])
+      }
     },
   })
 
@@ -103,9 +141,32 @@ export function QueryProvider({ children }: { children: ReactNode }) {
     setFocusRequest((current) => current + 1)
   }, [])
 
+  const clearChat = useCallback(() => setChatTurns([]), [])
+
+  const chatHistory = useMemo<ChatMessage[]>(
+    () =>
+      chatTurns.flatMap((turn): ChatMessage[] => [
+        { role: 'user', content: turn.query },
+        { role: 'assistant', content: turn.answer },
+      ]),
+    [chatTurns],
+  )
+
   const value = useMemo<QueryContextValue>(
-    () => ({ query, restoreEntry, draft, setDraft, fillDraft, focusRequest }),
-    [query, restoreEntry, draft, fillDraft, focusRequest],
+    () => ({
+      query,
+      restoreEntry,
+      draft,
+      setDraft,
+      fillDraft,
+      focusRequest,
+      mode,
+      setMode,
+      chatTurns,
+      chatHistory,
+      clearChat,
+    }),
+    [query, restoreEntry, draft, fillDraft, focusRequest, mode, chatTurns, chatHistory, clearChat],
   )
 
   return <QueryContext.Provider value={value}>{children}</QueryContext.Provider>

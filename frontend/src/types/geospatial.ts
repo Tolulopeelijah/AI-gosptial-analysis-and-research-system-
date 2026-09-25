@@ -114,6 +114,17 @@ export interface KnowledgeReference {
   source?: string
 }
 
+/** A tabular tool output (e.g. a Maumee summary), forwarded for display/download. */
+export interface TableResult {
+  id: string
+  title: string
+  dataset: string
+  columns: string[]
+  rows: Array<Record<string, string | number | boolean | null>>
+  row_count: number
+  truncated?: boolean
+}
+
 export interface BoundingBox {
   west: number
   south: number

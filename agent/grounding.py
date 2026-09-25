@@ -21,14 +21,14 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Set, Tuple
 
-MARKER_RE = re.compile(r"\[S(\d+)\]")
+MARKER_RE = re.compile(r"\[(S|T)(\d+)\]")
 
 
 def extract_markers(text: str) -> List[str]:
-    """Unique ``S#`` markers in order of first appearance."""
+    """Unique ``S#``/``T#`` markers in order of first appearance."""
     seen: List[str] = []
     for m in MARKER_RE.finditer(text or ""):
-        ref = f"S{m.group(1)}"
+        ref = f"{m.group(1)}{m.group(2)}"
         if ref not in seen:
             seen.append(ref)
     return seen
@@ -47,7 +47,7 @@ def strip_invalid_markers(text: str, valid_refs: Set[str]) -> Tuple[str, int]:
     """Remove markers with no backing hit; return (cleaned_text, removed)."""
 
     def keep(m: re.Match) -> str:
-        return m.group(0) if f"S{m.group(1)}" in valid_refs else ""
+        return m.group(0) if f"{m.group(1)}{m.group(2)}" in valid_refs else ""
 
     cleaned, n = MARKER_RE.subn(keep, text or "")
     removed = len(extract_markers(text or "")) - len(extract_markers(cleaned))

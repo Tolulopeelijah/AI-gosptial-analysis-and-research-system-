@@ -19,6 +19,9 @@ from .results import ResultStore, build_final_response, feature_collection
 
 log = logging.getLogger(__name__)
 
+# Max table rows forwarded in a response (downloads stay usable offline).
+MAX_TABLE_ROWS = 200
+
 EventSink = Optional[Callable[[Dict[str, Any]], None]]
 
 _RETRYABLE = ("timeout", "timed out", "connection", "503", "504", "rate limit")
@@ -123,6 +126,7 @@ class Orchestrator:
         layers: List[Dict[str, Any]] = []
         sources: List[Dict[str, Any]] = []
         references: List[Dict[str, Any]] = []
+        tables: List[Dict[str, Any]] = []
         datasets: List[str] = []
         operations: List[str] = []
         table_notes: List[str] = []
@@ -162,7 +166,33 @@ class Orchestrator:
                 if out.get("row_count", 0) <= 10 and out.get("rows"):
                     note += f" values={json.dumps(out['rows'][:10])}"
                 table_notes.append(note)
-            elif isinstance(out, dict) and out.get("type") == "knowledge":
+                # Transport-safe copy for download/analysis modes (capped).
+                rows = out.get("rows", []) or []
+                tables.append({
+                    "id": step.id,
+                    "title": step.id.replace("_", " ").title(),
+                    "dataset": out.get("dataset", step.tool),
+                    "columns": out.get("columns", []),
+                    "rows": rows[:MAX_TABLE_ROWS],
+                    "row_count": out.get("row_count", len(rows)),
+                    "truncated": len(rows) > MAX_TABLE_ROWS,
+                })
+        # Table outputs become citable [T#] sources so combined answers can
+        # quote measured values (labels match the prompt block built in agent).
+        for i, t in enumerate(tables, 1):
+            references.append({
+                "ref": f"T{i}",
+                "source": t.get("dataset"),
+                "title": f"Table: {t.get('title')}",
+                "identifier": t.get("dataset"),
+                "url": None,
+            })
+
+        for step in plan.steps:
+            if not store.has(step.id):
+                continue
+            out = store.get(step.id)
+            if isinstance(out, dict) and out.get("type") == "knowledge":
                 for h in out.get("hits", []):
                     # Global renumbering: refs are unique across all knowledge
                     # steps so [S#] markers in the answer resolve unambiguously.
@@ -203,6 +233,7 @@ class Orchestrator:
             count=primary_count,
             sources=sources or None,
             references=references or None,
+            tables=tables or None,
             execution={"plan": {"goal": plan.goal,
                                 "steps": [s.model_dump() for s in plan.steps]},
                        "selected_tools": sorted(set(operations)),

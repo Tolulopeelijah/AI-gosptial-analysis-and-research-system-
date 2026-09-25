@@ -123,6 +123,7 @@ def build_final_response(
     count: Optional[int] = None,
     sources: Optional[List[Dict[str, Any]]] = None,
     references: Optional[List[Dict[str, Any]]] = None,
+    tables: Optional[List[Dict[str, Any]]] = None,
     execution: Optional[Dict[str, Any]] = None,
     error: Optional[Dict[str, Any]] = None,
     timing_ms: Optional[int] = None,
@@ -140,6 +141,8 @@ def build_final_response(
         payload["sources"] = sources
     if references:
         payload["references"] = references
+    if tables:
+        payload["tables"] = tables
     if execution is not None:
         payload["execution"] = execution
     if error is not None:

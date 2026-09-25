@@ -132,6 +132,33 @@ export function HelpIcon(props: IconProps) {
   )
 }
 
+export function ChatIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 6h16v9H9l-5 4V6Z" />
+      <path d="M8 10h8M8 13h5" />
+    </Icon>
+  )
+}
+
+export function DownloadIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 4v11" />
+      <path d="m7 11 5 5 5-5" />
+      <path d="M4 20h16" />
+    </Icon>
+  )
+}
+
+export function MenuIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </Icon>
+  )
+}
+
 export function HistoryIcon(props: IconProps) {
   return (
     <Icon {...props}>

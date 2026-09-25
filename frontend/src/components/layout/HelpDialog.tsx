@@ -9,6 +9,7 @@ import {
 } from '@/data/scenarios'
 import { useQueryState } from '@/state/QueryProvider'
 import { BACKEND_ENDPOINT } from '@/services/geospatialApi'
+import type { QueryMode } from '@/types/query'
 import { Button, IconButton } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Panel'
 import { XIcon } from '@/components/ui/Icons'
@@ -23,7 +24,7 @@ import { XIcon } from '@/components/ui/Icons'
  * test harness for the error states.
  */
 export function HelpDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { fillDraft } = useQueryState()
+  const { fillDraft, setMode } = useQueryState()
 
   useEffect(() => {
     if (!open) return
@@ -37,6 +38,12 @@ export function HelpDialog({ open, onClose }: { open: boolean; onClose: () => vo
   if (!open) return null
 
   const run = (text: string) => {
+    fillDraft(text)
+    onClose()
+  }
+
+  const runInMode = (text: string, mode: QueryMode) => {
+    setMode(mode)
     fillDraft(text)
     onClose()
   }
@@ -72,6 +79,30 @@ export function HelpDialog({ open, onClose }: { open: boolean; onClose: () => vo
               <StatusBadge tone="accent">{`Agent backend · ${BACKEND_ENDPOINT}`}</StatusBadge>
               <StatusBadge tone="neutral">Results held in memory only</StatusBadge>
             </div>
+          </section>
+
+          <section>
+            <Heading>Query modes</Heading>
+            <p className="mt-1 text-[11px] leading-snug text-ink-3">
+              The mode switcher above the rail decides what a query means. Click one to
+              load its example in that mode.
+            </p>
+            <ul className="mt-2 divide-y divide-line border border-line">
+              {MODE_GUIDE.map((guide) => (
+                <li key={guide.mode}>
+                  <button
+                    type="button"
+                    onClick={() => runInMode(guide.example, guide.mode)}
+                    className="flex w-full flex-col gap-0.5 px-2.5 py-1.5 text-left hover:bg-panel-muted"
+                  >
+                    <span className="text-[12px] font-medium text-ink">
+                      {guide.label} <span className="font-normal text-ink-3">— {guide.use}</span>
+                    </span>
+                    <span className="text-[12px] text-ink-2">“{guide.example}”</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           </section>
 
           <section>
@@ -169,3 +200,31 @@ function Heading({ children }: { children: ReactNode }) {
     <h3 className="text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-2">{children}</h3>
   )
 }
+
+const MODE_GUIDE: Array<{ mode: QueryMode; label: string; use: string; example: string }> = [
+  {
+    mode: 'chat',
+    label: 'Chat',
+    use: 'conversational Q&A; follow-ups remember the thread',
+    example: 'Why is phosphorus in the Maumee a concern for Lake Erie?',
+  },
+  {
+    mode: 'research',
+    label: 'Research',
+    use: 'full workflow: plan, execute, explain with references',
+    example:
+      'Find septic systems within 2 km of floodplain areas and summarize relevant NCWQR research.',
+  },
+  {
+    mode: 'spatial',
+    label: 'Spatial',
+    use: 'map-first analysis of the same GIS pipeline',
+    example: 'Find septic systems that intersect floodplain areas.',
+  },
+  {
+    mode: 'data',
+    label: 'Data',
+    use: 'raw tables and layers for download, no analysis prose',
+    example: 'Summarize total phosphorus (TP) in the Maumee dataset.',
+  },
+]

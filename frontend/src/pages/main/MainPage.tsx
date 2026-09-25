@@ -1,99 +1,69 @@
-import { useEffect, useRef, useState } from 'react'
-import { cn } from '@/lib/cn'
 import { AppHeader } from '@/components/layout/AppHeader'
+import { ModeSelector } from '@/components/query/ModeSelector'
 import { QueryPanel } from '@/components/query/QueryPanel'
+import { ChatPanel } from '@/components/query/ChatPanel'
 import { ProcessingPanel } from '@/components/processing/ProcessingPanel'
-import { HistoryPanel } from '@/components/history/HistoryPanel'
 import { ResultsPanel } from '@/components/results/ResultsPanel'
+import { TablesSection } from '@/components/results/TablesSection'
 import { MapCanvas } from '@/components/map/MapCanvas'
 import { useQueryState } from '@/state/QueryProvider'
-import { useHistoryState } from '@/state/HistoryProvider'
-
-type RailTab = 'ask' | 'progress' | 'history'
-
-const RAIL_TABS: Array<{ id: RailTab; label: string }> = [
-  { id: 'ask', label: 'Ask' },
-  { id: 'progress', label: 'Progress' },
-  { id: 'history', label: 'History' },
-]
+import { cn } from '@/lib/cn'
 
 /**
  * The workbench.
  *
- * Two regions, each with one job:
- *   left rail  — one task at a time (ask, follow progress, revisit history)
- *   centre     — the map, which is the answer, with the result data beneath it
+ * Three regions on wide screens, each with one job:
+ *   left rail  — ask (always visible) with progress directly below it,
+ *                or the chat thread in chat mode
+ *   centre     — the agent's explanation and data, given the most room
+ *   right      — a deliberately narrow map; past prompts live behind the
+ *                hamburger menu in the header
  *
- * Secondary panels live behind the rail tabs so the initial screen is only
- * the composer and the map. The rail is a fixed measure so the map keeps a
- * predictable share of the window.
+ * On narrow screens the regions stack in that order, so the prompt is never
+ * covered by the map.
  */
 export function MainPage() {
-  const [tab, setTab] = useState<RailTab>('ask')
-  const { query } = useQueryState()
-  const { entries } = useHistoryState()
-  const running = query.isRunning
-  const prevRunning = useRef(running)
-
-  // When a run starts, bring the progress panel forward exactly once.
-  useEffect(() => {
-    if (running && !prevRunning.current) setTab('progress')
-    prevRunning.current = running
-  }, [running])
+  const { mode } = useQueryState()
 
   return (
     <div className="flex h-dvh min-h-0 flex-col bg-canvas text-ink">
       <AppHeader />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 p-2 lg:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2 lg:flex-row lg:overflow-hidden">
         <aside
           aria-label="Query workspace"
-          className="flex min-h-0 shrink-0 flex-col gap-2 lg:w-[376px] xl:w-[412px]"
+          className="flex shrink-0 flex-col gap-2 lg:min-h-0 lg:w-[380px] lg:overflow-y-auto xl:w-[410px]"
         >
-          <nav
-            aria-label="Workspace views"
-            className="flex shrink-0 items-center gap-0.5 border border-line bg-panel p-0.5"
-          >
-            {RAIL_TABS.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => setTab(entry.id)}
-                aria-pressed={tab === entry.id}
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-1.5 rounded-[2px] px-2 py-1.5 text-[12px]',
-                  tab === entry.id
-                    ? 'bg-panel-muted font-medium text-ink'
-                    : 'text-ink-2 hover:text-ink',
-                )}
-              >
-                {entry.label}
-                {entry.id === 'progress' && running ? (
-                  <span
-                    className="size-1.5 animate-pulse rounded-full bg-accent"
-                    aria-label="query running"
-                  />
-                ) : null}
-                {entry.id === 'history' && entries.length > 0 ? (
-                  <span className="font-mono text-[10px] text-ink-3">{entries.length}</span>
-                ) : null}
-              </button>
-            ))}
-          </nav>
+          <ModeSelector />
 
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            {tab === 'ask' ? <QueryPanel /> : null}
-            {tab === 'progress' ? <ProcessingPanel /> : null}
-            {tab === 'history' ? <HistoryPanel /> : null}
-          </div>
+          {mode === 'chat' ? (
+            <ChatPanel />
+          ) : (
+            <>
+              <QueryPanel />
+              <ProcessingPanel />
+            </>
+          )}
         </aside>
 
-        <main className="flex min-h-0 flex-1 flex-col gap-2">
-          <div className="min-h-[320px] flex-1 border border-line">
-            <MapCanvas />
-          </div>
+        <main
+          aria-label="Answer"
+          className="flex min-h-0 flex-1 flex-col gap-2 lg:overflow-y-auto"
+        >
           <ResultsPanel />
+          {mode === 'data' ? <TablesSection /> : null}
         </main>
+
+        <section
+          aria-label="Map"
+          className={cn(
+            'h-[320px] shrink-0 border border-line lg:h-auto',
+            mode === 'spatial' && 'lg:w-[480px] xl:w-[560px]',
+            mode !== 'spatial' && 'lg:w-[340px] xl:w-[400px]',
+          )}
+        >
+          <MapCanvas />
+        </section>
       </div>
     </div>
   )

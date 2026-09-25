@@ -51,10 +51,13 @@ def query_maumee(
     end_date: Optional[str] = None,
     operation: str = "records",
     max_rows: int = DEFAULT_MAX_ROWS,
+    top_n: int = 3,
 ) -> Dict[str, Any]:
     """Query Maumee water-quality observations.
 
-    operation: 'records' (recent rows), 'summary' (count/mean/min/max),
+    operation: 'records' (recent rows), 'summary' (count/mean/min/max with
+    the datetimes of min and max), 'extremes' (top-N highest records with
+    datetimes, plus the lowest — answers "when was X highest/lowest"),
     'daily' (daily means, capped), 'schema' (columns + date range).
     """
     from ...registry import MAUMEE_PARAMETERS
@@ -98,21 +101,64 @@ def query_maumee(
         ]
         for col in targets:
             s = frame[col].dropna()
-            out.append(
-                {
-                    "column": col,
-                    "n": int(s.count()),
-                    "missing": int(frame[col].isna().sum()),
-                    "mean": float(s.mean()) if len(s) else None,
-                    "min": float(s.min()) if len(s) else None,
-                    "max": float(s.max()) if len(s) else None,
-                }
-            )
+            row: Dict[str, Any] = {
+                "column": col,
+                "n": int(s.count()),
+                "missing": int(frame[col].isna().sum()),
+                "mean": float(s.mean()) if len(s) else None,
+                "min": float(s.min()) if len(s) else None,
+                "max": float(s.max()) if len(s) else None,
+            }
+            if len(s):
+                # Datetimes of extremes — this is what answers "when".
+                dts = frame.loc[s.index, "DateTime"]
+                row["min_date"] = str(dts.loc[s.idxmin()])
+                row["max_date"] = str(dts.loc[s.idxmax()])
+            else:
+                row["min_date"] = row["max_date"] = None
+            out.append(row)
         return {
             "ok": True,
             "type": "table",
             "dataset": "maumee_water_quality",
-            "columns": ["column", "n", "missing", "mean", "min", "max"],
+            "columns": ["column", "n", "missing", "mean", "min", "max",
+                        "min_date", "max_date"],
+            "rows": out,
+            "row_count": len(out),
+        }
+
+    if operation == "extremes":
+        top_n = max(1, min(int(top_n), 50))
+        targets = [_value_col(parameter)] if parameter else [
+            c for c in df.columns if c.startswith("Value [")
+        ]
+        out = []
+        for col in targets:
+            sub = frame[["DateTime", col]].dropna(subset=[col])
+            if sub.empty:
+                continue
+            top = sub.nlargest(top_n, col)
+            lowest = sub.nsmallest(1, col).iloc[0]
+            for rank, (_, r) in enumerate(top.iterrows(), 1):
+                out.append({
+                    "column": col,
+                    "rank": rank,
+                    "DateTime": str(r["DateTime"]),
+                    "value": float(r[col]),
+                    "note": "highest" if rank == 1 else f"top-{rank}",
+                })
+            out.append({
+                "column": col,
+                "rank": None,
+                "DateTime": str(lowest["DateTime"]),
+                "value": float(lowest[col]),
+                "note": "lowest",
+            })
+        return {
+            "ok": True,
+            "type": "table",
+            "dataset": "maumee_water_quality",
+            "columns": ["column", "rank", "DateTime", "value", "note"],
             "rows": out,
             "row_count": len(out),
         }
@@ -162,19 +208,33 @@ QUERY_MAUMEE_SCHEMA = {
         "parameter": {
             "type": "string",
             "description": (
-                "Parameter code: FLOW, TSS, TP, SRP, NO23, TKN, CL, SO4, SI, "
-                "COND. Omit for all value columns."
+                "Parameter code: FLOW (flow), TSS (total suspended solids), "
+                "TP (total phosphorus), SRP (soluble/dissolved reactive phosphorus), "
+                "NO23 (nitrite+nitrate/nitrogen), TKN (Kjeldahl nitrogen), "
+                "CL (chloride), SO4 (sulfate), SI (silica), COND (conductivity). "
+                "USE THIS TOOL for any question about measured values, maxima/minima, "
+                "dates of records, trends, or summaries in the Maumee record — "
+                "do NOT use the knowledge base for these. Omit for all value columns."
             ),
         },
         "start_date": {"type": "string", "description": "ISO date lower bound."},
         "end_date": {"type": "string", "description": "ISO date upper bound."},
         "operation": {
             "type": "string",
-            "description": "'records', 'summary', 'daily' or 'schema'.",
+            "description": (
+                "'records' (recent rows), 'summary' (stats incl. min/max dates), "
+                "'extremes' (top-N highest records with datetimes + the lowest — "
+                "use for 'highest', 'lowest', 'maximum', 'when was X highest/lowest', "
+                "'peak', 'record' questions), 'daily' (daily means), 'schema'."
+            ),
         },
         "max_rows": {
             "type": "integer",
             "description": "Max rows returned (default 200, cap 1000).",
+        },
+        "top_n": {
+            "type": "integer",
+            "description": "Top-N highest records for 'extremes' (default 3, cap 50).",
         },
     }
 }

@@ -13,7 +13,9 @@ import { ErrorNotice } from './ErrorNotice'
 import { AttributeTable } from './AttributeTable'
 import { AttributeDistribution } from './AttributeDistribution'
 import { LayerList } from './LayerList'
-import type { GeographicResult } from '@/types/geospatial'
+import { ReferencesList } from './ReferencesList'
+import { TablesSection } from './TablesSection'
+import type { GeographicResult, KnowledgeReference } from '@/types/geospatial'
 
 type Tab = 'attributes' | 'distribution' | 'layers'
 
@@ -93,23 +95,45 @@ export function ResultsPanel() {
   }
 
   if (run.results.length === 0) {
+    const tables = run.tables ?? []
+    const references = run.references ?? []
+    // A table or knowledge answer is not an empty geographic result: the
+    // query succeeded, it just has nothing to draw. Only a run with neither
+    // layers, tables, references, nor explanation matched truly nothing.
+    const hasAnswer = tables.length > 0 || references.length > 0 || !!run.explanation
+    if (!hasAnswer) {
+      return (
+        <Panel
+          title="Results"
+          icon={<TargetIcon size={14} />}
+          className="shrink-0"
+          actions={<StatusBadge tone="warning">0 features</StatusBadge>}
+        >
+          <div className="border border-warning/45 bg-warning/8 px-3 py-2.5">
+            <h3 className="text-[13px] font-semibold text-ink">The query ran, but matched nothing</h3>
+            <p className="mt-1 text-[12px] leading-relaxed text-ink-2">
+              {run.explanation ??
+                'Every condition was applied to the dataset and no feature satisfied all of them. This is a result, not a failure — the query was valid.'}
+            </p>
+            <p className="mt-1.5 text-[12px] text-ink-2">
+              <span className="font-medium text-ink">Next: </span>
+              loosen a threshold, drop a condition, or widen the geographic extent.
+            </p>
+          </div>
+        </Panel>
+      )
+    }
     return (
       <Panel
         title="Results"
         icon={<TargetIcon size={14} />}
         className="shrink-0"
-        actions={<StatusBadge tone="warning">0 features</StatusBadge>}
+        actions={<StatusBadge tone="good">complete</StatusBadge>}
       >
-        <div className="border border-warning/45 bg-warning/8 px-3 py-2.5">
-          <h3 className="text-[13px] font-semibold text-ink">The query ran, but matched nothing</h3>
-          <p className="mt-1 text-[12px] leading-relaxed text-ink-2">
-            {run.explanation ??
-              'Every condition was applied to the dataset and no feature satisfied all of them. This is a result, not a failure — the query was valid.'}
-          </p>
-          <p className="mt-1.5 text-[12px] text-ink-2">
-            <span className="font-medium text-ink">Next: </span>
-            loosen a threshold, drop a condition, or widen the geographic extent.
-          </p>
+        <div className="space-y-2.5">
+          <ExplanationBlock text={run.explanation} />
+          <ReferencesBlock references={references} />
+          <TablesSection embedded />
         </div>
       </Panel>
     )
@@ -173,50 +197,8 @@ export function ResultsPanel() {
           />
         </div>
 
-        {run.explanation ? (
-          <div className="border-l-2 border-accent/50 bg-accent-soft/22 px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-3">
-              Agent's explanation
-            </div>
-            <p className="mt-0.5 text-[12px] leading-relaxed text-ink-2">{run.explanation}</p>
-          </div>
-        ) : null}
-
-        {run.references && run.references.length > 0 ? (
-          <div className="border border-line px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-3">
-              References
-            </div>
-            <ol className="mt-1 space-y-1">
-              {run.references.map((reference) => (
-                <li key={reference.ref} className="flex items-baseline gap-1.5 text-[12px] leading-snug">
-                  <span className="shrink-0 font-mono text-[11px] text-ink-3">
-                    [{reference.ref}]
-                  </span>
-                  <span className="min-w-0 text-ink-2">
-                    {reference.title ?? reference.identifier ?? reference.source}
-                    {reference.url ? (
-                      <>
-                        {' '}
-                        <a
-                          href={reference.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-accent-ink underline decoration-accent/50 underline-offset-2 hover:decoration-accent"
-                          title={reference.identifier ?? reference.url}
-                        >
-                          {reference.identifier && reference.identifier.startsWith('doi:')
-                            ? 'DOI'
-                            : 'link'}
-                        </a>
-                      </>
-                    ) : null}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        ) : null}
+        <ExplanationBlock text={run.explanation} />
+        <ReferencesBlock references={run.references} />
 
         {primaryLayers.length > 1 ? (
           <div className="flex flex-wrap items-center gap-1">
@@ -306,4 +288,22 @@ function AttributeDistributionResult({ result }: { result: GeographicResult }) {
 
 function EmptyTabNote({ children }: { children: ReactNode }) {
   return <p className="text-[11px] leading-relaxed text-ink-3">{children}</p>
+}
+
+/** The agent's write-up, shared by the layer and table/knowledge branches. */
+function ExplanationBlock({ text }: { text?: string }) {
+  if (!text) return null
+  return (
+    <div className="border-l-2 border-accent/50 bg-accent-soft/22 px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-3">
+        Agent's explanation
+      </div>
+      <p className="mt-0.5 text-[12px] leading-relaxed text-ink-2">{text}</p>
+    </div>
+  )
+}
+
+/** Numbered knowledge references with links, matching inline [S#] markers. */
+function ReferencesBlock({ references }: { references?: KnowledgeReference[] }) {
+  return <ReferencesList references={references} />
 }

@@ -90,10 +90,11 @@ live NCWQR pages → page-scope + selected relevant publication entries
 → ranked passages + {source, title, identifier, url} → LLM explanation
 ```
 
-The index holds dataset metadata plus 13 publications chosen for project
-relevance (Maumee nutrients, P sources/attribution, floods and loads, e.g.
-Stow et al. 2015, Kast et al. 2021, Verma et al. 2018). Topic summaries are
-paraphrased strictly from titles — no findings asserted beyond the citation.
+The index holds dataset metadata plus the full citation lists of both pages
+(179 lab + 133 derived entries, ingested verbatim by the re-runnable
+`scripts/ingest_ncwqr.py`, with titles/authors/DOIs exactly as published).
+Topic summaries are paraphrased strictly from titles — no findings asserted
+beyond the citation.
 `retrieval.py::_load_index` remains the seam for chunk ingestion; full-text
 PDF retrieval would be the next step only if citation-level proves
 insufficient.
@@ -179,8 +180,7 @@ See `.env.example`. `OPENAI_API_KEY` (planner/explainer; unset → rule planner)
 (auto-discovers `data/*.xlsx`), `KNOWLEDGE_INDEX_PATH`. `.env` is gitignored.
 
 ## 14. Example queries
-
-1. `Show septic systems in the available dataset.` (needs ArcGIS URLs)
+1. `Show septic systems in the available dataset.` (mock-backed until live ArcGIS is reachable)
 2. `Find septic systems that intersect floodplain areas.`
 3. `Find septic systems within 2 km of floodplain areas.` (buffer 2000 m + intersect)
 4. `Find the relevant NCWQR publications about water-quality implications…` (knowledge)
@@ -190,16 +190,33 @@ See `.env.example`. `OPENAI_API_KEY` (planner/explainer; unset → rule planner)
 
 ```python
 from agent.agent import GeospatialAgent
-resp = GeospatialAgent().ask("Summarize TP in the Maumee dataset")
-# resp: {queryId, status, explanation, results?, dataset?, count?, sources?, execution?, timingMs?}
+resp = GeospatialAgent().ask("Summarize TP in the Maumee dataset", mode="data")
+# resp: {queryId, status, explanation, results?, tables?, dataset?, count?,
+#        sources?, references?, execution?, timingMs?}
 ```
+
+## Modes
+
+`POST /query` accepts `mode` (`chat` | `research` | `spatial` | `data`,
+default `research`) and, for chat, `history` (recent `{role, content}` turns):
+
+| Mode | Backend | UI |
+|---|---|---|
+| `chat` | Pipeline + history-aware planning/explanation, follow-ups resolve | Thread + composer; map is a 140px strip |
+| `research` | Full plan → execute → explain + references (current behavior) | Composer + full dock; compact 300px map |
+| `spatial` | Same pipeline as research | Map takes the room (min 320px, grows) |
+| `data` | Pipeline, but no LLM analysis rewrite; raw `tables` (+ layers) for download | Compact map; Data panel with CSV/GeoJSON export |
+
+Tables are capped at 200 rows per response (`row_count` + `truncated` tell the
+full story); downloads are generated client-side from bytes already received.
+See `docs/DECISIONS.md` (D28–D30).
 
 ## 16. Current limitations
 
 - ArcGIS tools are mock-backed (`ARCGIS_USE_MOCK=true`) because the live
   servers time out from here; fixture geometry/attributes are provisional and
   every answer says so. Flip one env var when reachable.
-- Knowledge index is citation-level (13 selected publications + page scope) —
+- Knowledge index is citation-level (full citation lists: 179 lab + 133 derived) —
   no full-text PDFs yet.
 - `RulePlanner` covers demo shapes when no key is set; the OpenAI planner is
   live-verified but small models need the JSON-object + example prompting

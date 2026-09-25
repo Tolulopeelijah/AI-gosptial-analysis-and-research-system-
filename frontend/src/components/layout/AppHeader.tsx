@@ -6,6 +6,7 @@ import { HelpIcon } from '@/components/ui/Icons'
 import { StatusIndicator } from './StatusIndicator'
 import { SettingsPopover } from './SettingsPopover'
 import { HelpDialog } from './HelpDialog'
+import { HistoryDrawer } from '@/components/history/HistoryDrawer'
 
 /**
  * Application header.
@@ -17,8 +18,14 @@ export function AppHeader() {
   const [helpOpen, setHelpOpen] = useState(false)
 
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-line bg-panel px-3">
+    <>
+      <div
+        className="h-1 shrink-0 bg-gradient-to-r from-accent via-[#1baf7a] to-accent"
+        aria-hidden="true"
+      />
+      <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-line bg-panel px-3">
       <div className="flex min-w-0 items-center gap-2.5">
+        <HistoryDrawer />
         <span
           className="flex size-6 shrink-0 items-center justify-center rounded-[3px] bg-ink text-panel"
           aria-hidden="true"
@@ -26,10 +33,12 @@ export function AppHeader() {
           <MarkIcon />
         </span>
         <div className="flex min-w-0 items-baseline gap-2">
-          <h1 className="truncate text-[14px] font-semibold tracking-[-0.01em] text-ink">
+          <h1 className="truncate text-[16px] font-bold tracking-[-0.01em] text-ink">
             {APP_NAME}
           </h1>
-          <span className="hidden truncate text-[12px] text-ink-3 sm:inline">{APP_DESCRIPTOR}</span>
+          <span className="hidden truncate text-[12px] font-medium text-accent-ink sm:inline">
+            {APP_DESCRIPTOR}
+          </span>
         </div>
       </div>
 
@@ -52,7 +61,8 @@ export function AppHeader() {
       </div>
 
       <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
-    </header>
+      </header>
+    </>
   )
 }
 

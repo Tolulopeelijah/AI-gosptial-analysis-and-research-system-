@@ -51,6 +51,8 @@ def health():
 def query():
     body = request.get_json(force=True, silent=True) or {}
     text = (body.get("query") or "").strip()
+    mode = (body.get("mode") or "research").strip()
+    history = body.get("history") or []
     wants_sse = "text/event-stream" in (request.headers.get("Accept") or "")
 
     if wants_sse:
@@ -63,7 +65,8 @@ def query():
 
             # Collect-then-stream: execution is fast and this keeps ordering exact.
             collected: list = []
-            response = agent.ask(text, on_event=collected.append)
+            response = agent.ask(text, mode=mode, history=history,
+                                 on_event=collected.append)
             yield f"data: {json.dumps({'type': 'query_received', 'queryId': response['queryId']})}\n\n"
             for event in collected:
                 if event.get("type") == "query_received":
@@ -72,7 +75,7 @@ def query():
             for layer in response.get("results", []) or []:
                 yield f"data: {json.dumps({'type': 'result', 'data': layer})}\n\n"
             if response.get("status") == "completed":
-                yield f"data: {json.dumps({'type': 'completed', 'explanation': response.get('explanation'), 'dataset': response.get('dataset'), 'count': response.get('count'), 'references': response.get('references')})}\n\n"
+                yield f"data: {json.dumps({'type': 'completed', 'explanation': response.get('explanation'), 'dataset': response.get('dataset'), 'count': response.get('count'), 'references': response.get('references'), 'tables': response.get('tables')})}\n\n"
             else:
                 err = response.get("error", {})
                 yield f"data: {json.dumps({'type': 'error', 'code': err.get('code', 'query_failed'), 'message': err.get('message', 'failed'), 'detail': err.get('detail'), 'hint': err.get('hint')})}\n\n"
@@ -81,7 +84,7 @@ def query():
 
         return Response(generate(), mimetype="text/event-stream")
 
-    response = agent.answer_stream(text)
+    response = agent.answer_stream(text, mode=mode, history=history)
     return jsonify(response)
 
 

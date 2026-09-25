@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .plans import ExecutionPlan, PlanStep, validate_plan
 from .registry import available_datasets, build_registry
@@ -119,7 +119,7 @@ class OpenAIPlanner:
         self.model = model
         self.api_key = api_key
 
-    def plan(self, query: str) -> Dict[str, Any]:
+    def plan(self, query: str, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         from openai import OpenAI
 
         from .tools.registry import build_tool_registry
@@ -138,6 +138,12 @@ class OpenAIPlanner:
             )
         client = OpenAI(api_key=self.api_key)
         user = "\n".join(lines) + f"\n\nUSER QUERY: {query}"
+        if history:
+            convo = "\n".join(
+                f"{'User' if h.get('role') == 'user' else 'Assistant'}: "
+                f"{h.get('content', '')[:400]}" for h in history[-4:])
+            user += ("\n\nConversation so far (resolve follow-ups like "
+                     f"'it', 'that', 'what about' against it):\n{convo}")
         try:
             resp = client.chat.completions.create(
                 model=self.model,
@@ -212,7 +218,31 @@ _DISTANCE_RE = re.compile(
     r"within\s+([\d.]+)\s*(km|kilometers?|kilometres?|m|meters?|metres?|miles?|mi|feet|ft)",
     re.I,
 )
-_MAUMEE_RE = re.compile(r"\b(maumee|phosphorus|nitrate|flow|tss|water quality|conductivity|chloride)\b", re.I)
+_MAUMEE_RE = re.compile(
+    r"\b(maumee|phosphorus|phosphate|nitrate|nitrite|nitrogen|kjeldahl|"
+    r"chloride|sulfate|sulphate|silica|solids|sediment|dissolved|soluble|"
+    r"tss|srp|no23|tkn|cond|flow|discharge|conductivity|water quality)\b", re.I)
+_EXTREMES_RE = re.compile(
+    r"\b(highest|lowest|maximum|minimum|peak|all-time|all time)\b"
+    r"|\brecord\s+(high|low)\b|\bwhen was\b|\bwhat day\b|\bwhich date\b", re.I)
+
+# Full parameter names first (longest match wins); short codes need word
+# boundaries so "si" doesn't match stray substrings.
+_PARAM_NAMES = [
+    ("total suspended solids", "TSS"), ("suspended solids", "TSS"),
+    ("suspended sediment", "TSS"),
+    ("soluble reactive phosphorus", "SRP"),
+    ("dissolved reactive phosphorus", "SRP"),
+    ("dissolved phosphorus", "SRP"), ("soluble phosphorus", "SRP"),
+    ("total phosphorus", "TP"), ("nitrite + nitrate", "NO23"),
+    ("nitrite+nitrate", "NO23"),
+    ("phosphorus", "TP"), ("phosphate", "TP"), ("sediment", "TSS"),
+    ("nitrite", "NO23"), ("nitrate", "NO23"), ("nitrogen", "NO23"),
+    ("kjeldahl", "TKN"), ("chloride", "CL"), ("sulfate", "SO4"),
+    ("sulphate", "SO4"), ("silica", "SI"), ("conductivity", "COND"),
+    ("discharge", "FLOW"), ("dissolved", "SRP"), ("soluble", "SRP"),
+    ("flow", "FLOW"),
+]
 _KNOW_RE = re.compile(r"\b(publication|research|paper|stud(y|ies)|implication|ncwqr|literature|wqr)\b", re.I)
 _SEPTIC_RE = re.compile(r"\bseptic\b", re.I)
 _FLOOD_RE = re.compile(r"\bfloodplain|flood\b", re.I)
@@ -223,7 +253,7 @@ class RulePlanner:
     """Deterministic planner for known query shapes; honest 'unsupported'
     for anything else (never invents tools or datasets)."""
 
-    def plan(self, query: str) -> Dict[str, Any]:
+    def plan(self, query: str, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         q = query.strip()
         registry = build_registry()
         avail = set(available_datasets(registry))
@@ -250,8 +280,9 @@ class RulePlanner:
         kind = "gis"
         if wants_maumee and not (wants_septic or wants_flood):
             param = self._param(q)
+            operation = "extremes" if _EXTREMES_RE.search(q) else "summary"
             steps = [PlanStep(id="maumee", tool="query_maumee",
-                              arguments={"operation": "summary",
+                              arguments={"operation": operation,
                                          **({"parameter": param} if param else {})},
                               depends_on=[])]
             kind = "knowledge" if wants_knowledge else "gis"
@@ -323,13 +354,17 @@ class RulePlanner:
     @staticmethod
     def _param(q: str) -> str | None:
         ql = q.lower()
-        for code in ["NO23", "TSS", "SRP", "TKN", "COND", "FLOW", "TP", "CL", "SO4", "SI"]:
-            if code.lower() in ql or {"tp": "phosphorus"}.get(code.lower(), "") in ql:
+        for name, code in _PARAM_NAMES:
+            if len(name) <= 7:
+                # Short words ("flow", "silica" is fine, but guard) match on
+                # word boundaries so "flow" doesn't fire inside "follow".
+                if re.search(r"\b" + re.escape(name) + r"\b", ql):
+                    return code
+            elif name in ql:
                 return code
-        if "phosphorus" in ql:
-            return "TP"
-        if "nitrate" in ql or "nitrite" in ql or "nitrogen" in ql:
-            return "NO23"
+        for code in ["TSS", "SRP", "NO23", "TKN", "COND", "FLOW", "TP", "CL", "SO4", "SI"]:
+            if re.search(r"\b" + code.lower() + r"\b", ql):
+                return code
         return None
 
     @staticmethod

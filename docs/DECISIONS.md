@@ -139,16 +139,21 @@ optimality; relevance labels + precision/recall evaluation are future work.
 
 ### D16 — Provenance labels inside the index
 `ncwqr_index.json` holds: workbook facts (from the file), 2 page-scope
-entries (from live fetches), 13 selected publications (titles/DOIs transcribed
-from live pages; topic lines paraphrased strictly from titles — no asserted
-findings), and 1 entry explicitly labelled `analyst_synthesis` / "NOT an NCWQR
-publication". DOIs spot-verified as resolving at doi.org.
+entries (from live fetches), full-page citation ingests (verbatim text, year,
+and DOI links from both pages via `scripts/ingest_ncwqr.py`), and 1 entry
+explicitly labelled `analyst_synthesis` / "NOT an NCWQR publication". DOIs
+spot-verified as resolving at doi.org.
 
-### D17 — Publication selection is relevance-driven, not exhaustive
-13 papers chosen for project relevance (Maumee nutrients, P
-sources/attribution, floods and loads). The pages list hundreds of citations;
-indexing everythingverbatim adds recall the keyword scorer cannot use well.
-Exhaustive ingestion belongs with full-text work (D13).
+### D17 — Full ingestion replaced relevance selection (superseded)
+The index first held 13 hand-selected publications. Challenge: the lab page
+alone carries ~180 citations, and hand-selection is selection bias, not a
+principle. Resolution: `scripts/ingest_ncwqr.py` parses both live pages (year
+headings → citation paragraphs) and ingests every entry verbatim — 179 lab +
+133 derived, 317 entries total with the 5 hand entries preserved. Rationale
+for the change: recall matters in a knowledge base, and the keyword scorer
+handles 317 entries without degradation (verified by test + live queries).
+The script is re-runnable, which also makes the index reproducible for paper
+methods sections.
 
 ---
 
@@ -220,3 +225,52 @@ Fixtures dodge this today, but live parcel-level septic data identifies
 private residences. Before any publication or public deployment: aggregate,
 jitter, gate access, and write the ethics statement. Flagged early so it is
 not discovered late.
+
+## G. Modes (chat / research / spatial / data)
+
+### D28 — One backend, four handling modes
+`POST /query` accepts `mode` (`chat` | `research` | `spatial` | `data`,
+default `research`) plus `history` (recent `{role, content}` turns).
+Research and spatial run the identical full plan→execute pipeline — the
+difference is UI emphasis (D30), not capability. Data mode skips the LLM
+analysis rewrite and returns deterministic summaries plus raw payloads for
+download. Chat mode feeds history into planning (follow-up resolution: "it",
+"what about nitrogen?") and into the explanation prompt. Unknown modes fall
+back to research; the active mode is recorded in execution metadata.
+Rationale: downloading data and chatting are different contracts from
+analysis, and conflating them produced vague answers (e.g. analysis prose
+over a simple table request).
+
+### D29 — Tables travel with responses; downloads are client-side
+The orchestrator forwards tabular tool outputs as `tables` (capped at 200
+rows, `row_count` + `truncated` flags preserved) over JSON and SSE. The
+frontend renders them with CSV export; feature layers get GeoJSON export.
+No download endpoint was added: the bytes already arrived with the answer, so
+a server round-trip would be pure overhead. Shown in the results dock in data
+mode only, keeping other modes uncluttered.
+
+### D30 — The map is modest except in spatial mode
+Heights: chat 140px strip, data 220px, research 300px, spatial flexible
+(min 320px, grows). The map auto-fits each new result set in every mode, so
+small never means lost. Mode switcher sits atop the rail, always visible;
+chat replaces the rail tabs with a thread + pinned composer (turns stored
+client-side, history sent per request).
+
+## H. Tabular extremes and parameter recognition
+
+### D31 — "When was X highest" needs dates, full names, and table grounding
+A real user query ("when was total suspended solids the highest?") failed
+three ways at once: (1) the planner only recognised the code `TSS`, not the
+full name; (2) no tool operation returned extreme *dates* — summaries had
+min/max values without datetimes; (3) the explanation prompt treated only
+knowledge passages as citable, so a combined answer ignored its own table and
+claimed the index lacked the information. Fixes: `query_maumee` gained an
+`extremes` operation (top-N records with datetimes + the lowest) and
+`summaries` now include `min_date`/`max_date`; the rule planner maps ~25 full
+parameter names to codes (longest-match-first, word boundaries for short
+words) and routes highest/lowest/peak/record/when-was intents to `extremes`;
+tool descriptions steer the OpenAI planner to the table path for measured
+values; tables became citable `[T#]` sources (orchestrator labels, prompt
+includes row values, grounding validates `S` and `T` markers). Verified live:
+TSS highest = 2454.1 mg/L on 1990-02-23, cross-checked against an independent
+pandas read.

@@ -380,5 +380,92 @@ def test_e2e_knowledge_response_has_references():
     assert resp["status"] == "completed"
     refs = resp.get("references") or []
     assert refs, "knowledge answers must carry structured references"
-    assert all(r.get("ref", "").startswith("S") for r in refs)
-    assert all(r.get("identifier") for r in refs)
+    assert all(r.get("ref", "")[:1] in ("S", "T") for r in refs)
+    assert any(r["ref"].startswith("S") and r.get("identifier") for r in refs)
+
+
+# ---------------------------------------------------------------- modes ---
+
+def test_data_mode_returns_tables_and_mode():
+    agent = _ruled_agent()
+    resp = agent.ask("Summarize total phosphorus (TP) in the Maumee dataset", mode="data")
+    assert resp["status"] == "completed"
+    assert resp["execution"]["mode"] == "data"
+    tables = resp.get("tables") or []
+    assert tables and tables[0]["row_count"] >= 1
+    assert tables[0]["columns"] and tables[0]["rows"]
+
+
+def test_chat_mode_accepts_history():
+    agent = _ruled_agent()
+    resp = agent.ask(
+        "Summarize nitrogen (NO23) in the Maumee dataset",
+        mode="chat",
+        history=[{"role": "user", "content": "Summarize phosphorus in Maumee"},
+                 {"role": "assistant", "content": "TP mean 0.27 mg-P/L."}],
+    )
+    assert resp["status"] == "completed"
+    assert resp["execution"]["mode"] == "chat"
+
+
+def test_invalid_mode_defaults_to_research():
+    agent = _ruled_agent()
+    resp = agent.ask("Summarize total phosphorus (TP) in the Maumee dataset", mode="bogus")
+    assert resp["status"] == "completed"
+    assert resp["execution"]["mode"] == "research"
+
+
+# ------------------------------------------------------------- extremes ---
+
+def test_extremes_tss_matches_independent_recompute():
+    import pandas as pd
+
+    from agent.config import settings
+    from agent.tools.data.xlsx import query_maumee
+
+    out = query_maumee(parameter="TSS", operation="extremes", top_n=3)
+    assert out["ok"]
+    top = [r for r in out["rows"] if r["note"] != "lowest"]
+    assert [r["rank"] for r in top] == [1, 2, 3]
+    assert all("DateTime" in r and r["value"] is not None for r in top)
+    vals = [r["value"] for r in top]
+    assert vals == sorted(vals, reverse=True)
+
+    df = pd.read_excel(settings.MAUMEE_XLSX_PATH, sheet_name="Maumee_samples")
+    col = [c for c in df.columns if c.startswith("Value [TSS]")][0]
+    s = df[col].dropna()
+    assert top[0]["value"] == float(s.max())
+    assert top[0]["DateTime"] == str(df.loc[s.idxmax(), "DateTime"])
+
+
+def test_summary_reports_extreme_dates():
+    from agent.tools.data.xlsx import query_maumee
+
+    out = query_maumee(parameter="TP", operation="summary")
+    row = next(r for r in out["rows"] if "TP" in r["column"])
+    assert row["max_date"] and row["min_date"]
+
+
+def test_rule_planner_routes_tss_highest_to_extremes():
+    from agent.planner import RulePlanner
+
+    outcome = RulePlanner().plan("When was total suspended solids the highest?")
+    assert outcome["plan"] is not None
+    step = outcome["plan"].steps[0]
+    assert step.tool == "query_maumee"
+    assert step.arguments["parameter"] == "TSS"
+    assert step.arguments["operation"] == "extremes"
+
+
+def test_rule_planner_full_parameter_names():
+    from agent.planner import RulePlanner
+
+    for text, code in [
+        ("lowest flow on record", "FLOW"),
+        ("peak nitrate levels", "NO23"),
+        ("dissolved phosphorus trends", "SRP"),
+        ("chloride summary", "CL"),
+    ]:
+        outcome = RulePlanner().plan(text)
+        assert outcome["plan"] is not None, text
+        assert outcome["plan"].steps[0].arguments.get("parameter") == code, text

@@ -17,7 +17,7 @@ import type { QueryHistoryEntry } from '@/types/query'
  * offers to load the text into the composer and run it again instead of
  * pretending it still has the data.
  */
-export function HistoryPanel() {
+export function HistoryPanel({ onSelect }: { onSelect?: () => void } = {}) {
   const { entries, clear, remove } = useHistoryState()
   const { restoreEntry, fillDraft, query } = useQueryState()
   const [unavailableId, setUnavailableId] = useState<string | null>(null)
@@ -33,10 +33,11 @@ export function HistoryPanel() {
     const restored = restoreEntry(entry)
     if (restored) {
       setUnavailableId(null)
-      return
+    } else {
+      setUnavailableId(entry.id)
+      fillDraft(entry.query)
     }
-    setUnavailableId(entry.id)
-    fillDraft(entry.query)
+    onSelect?.()
   }
 
   return (

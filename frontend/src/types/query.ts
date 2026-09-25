@@ -1,5 +1,28 @@
 import type { AgentEvent, GeoQueryError, ProcessingStep, RunStatus } from './agent'
-import type { GeographicResult, KnowledgeReference, QueryContext } from './geospatial'
+import type {
+  GeographicResult,
+  KnowledgeReference,
+  QueryContext,
+  TableResult,
+} from './geospatial'
+
+/** How a query should be handled: conversation, full pipeline, map-first, or raw data. */
+export type QueryMode = 'chat' | 'research' | 'spatial' | 'data'
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+/** One conversational turn, kept client-side for the chat thread. */
+export interface ChatTurn {
+  query: string
+  answer: string
+  references?: KnowledgeReference[]
+  dataset?: string
+  count?: number
+  errorCode?: GeoQueryError['code']
+}
 
 /**
  * Request/response contract for the geospatial query service.
@@ -10,6 +33,8 @@ import type { GeographicResult, KnowledgeReference, QueryContext } from './geosp
 export interface QueryRequest {
   query: string
   context?: QueryContext
+  mode?: QueryMode
+  history?: ChatMessage[]
 }
 
 export interface QueryResponse {
@@ -26,6 +51,8 @@ export interface QueryResponse {
   timingMs?: number
   /** Knowledge sources behind the answer; refs match inline [S#] markers. */
   references?: KnowledgeReference[]
+  /** Tabular outputs, for display and download. */
+  tables?: TableResult[]
 }
 
 /** Options accepted by `submitGeospatialQuery`. */
@@ -35,6 +62,10 @@ export interface SubmitOptions {
   onEvent?: (event: AgentEvent) => void
   /** Extra context (map bounds, a future drawn selection, …). */
   context?: QueryContext
+  /** Handling mode; defaults to `research`. */
+  mode?: QueryMode
+  /** Recent conversation turns (used in `chat` mode for follow-ups). */
+  history?: ChatMessage[]
 }
 
 export interface SubmitHandle {
@@ -84,6 +115,8 @@ export interface QueryRun {
   error?: GeoQueryError
   /** Knowledge sources behind the last answer. */
   references?: KnowledgeReference[]
+  /** Tabular outputs from the last run. */
+  tables?: TableResult[]
   /** Message lines that are not steps, e.g. the planner's narration. */
   messages: string[]
   startedAt?: number

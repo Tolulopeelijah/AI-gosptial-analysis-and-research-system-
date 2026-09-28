@@ -4,8 +4,8 @@
  * Kept out of the components so the wording lives next to the scenario data
  * rather than being scattered through JSX.
  */
-export const APP_NAME = 'WEIS'
-export const APP_DESCRIPTOR = 'Water Intelligence and Environmental Stewardship'
+export const APP_NAME = 'WIES'
+export const APP_DESCRIPTOR = 'Water Intelligence for Education Stewardship'
 
 /** Keyboard shortcuts, listed in the help panel. */
 export const SHORTCUTS: Array<{ keys: string; action: string }> = [

@@ -276,8 +276,8 @@ pandas read.
 
 ## I. Identity, uploads, and paper output
 
-### D32 — Renamed Geoscope → WEIS
-System name is now WEIS (Water Intelligence and Environmental Stewardship)
+### D32 — Renamed Geoscope → WIES
+System name is now WIES (Water Intelligence for Education Stewardship)
 across UI copy, package metadata, page title, and storage keys (one-time
 local reset of history/map prefs accepted). No backend references existed.
 

@@ -103,7 +103,7 @@ export function ChatPanel() {
                 W
               </span>
               <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-3">
-                WEIS
+                WIES
               </span>
             </div>
             <div className="rounded-[6px] rounded-tl-[2px] border border-line bg-panel px-2.5 py-1.5">
@@ -136,11 +136,11 @@ export function ChatPanel() {
       </div>
 
       <div className="mt-2 shrink-0 border border-line-strong bg-panel focus-within:border-accent">
-        <label className="sr-only" htmlFor="weis-chat">
+        <label className="sr-only" htmlFor="wies-chat">
           Chat message
         </label>
         <textarea
-          id="weis-chat"
+          id="wies-chat"
           value={input}
           onChange={(event) => setInput(event.target.value.slice(0, MAX_LENGTH))}
           onKeyDown={handleKeyDown}

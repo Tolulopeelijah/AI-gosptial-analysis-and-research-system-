@@ -14,11 +14,11 @@ export function ResearchBrief() {
 
   return (
     <Panel title="Aims & objectives" icon={<TargetIcon size={14} />} className="shrink-0">
-      <label className="sr-only" htmlFor="weis-aims">
+      <label className="sr-only" htmlFor="wies-aims">
         Research aims and objectives, one per line
       </label>
       <textarea
-        id="weis-aims"
+        id="wies-aims"
         value={aims}
         onChange={(event) => setAims(event.target.value.slice(0, 1000))}
         rows={3}

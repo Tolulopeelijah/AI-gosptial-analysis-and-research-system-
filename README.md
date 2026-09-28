@@ -1,4 +1,4 @@
-# WEIS — Water Intelligence and Environmental Stewardship
+# WIES — Water Intelligence for Education Stewardship
 
 Research-oriented **natural-language geospatial agent**: a user asks a geographic
 question, the agent understands and decomposes it, selects datasets and tools,

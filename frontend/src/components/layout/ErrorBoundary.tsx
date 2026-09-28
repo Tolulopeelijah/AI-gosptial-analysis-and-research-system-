@@ -23,7 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error('[weis] unhandled render error', error, info.componentStack)
+    console.error('[wies] unhandled render error', error, info.componentStack)
   }
 
   render(): ReactNode {

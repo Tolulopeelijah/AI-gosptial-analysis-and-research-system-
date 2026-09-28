@@ -79,11 +79,11 @@ export function QueryPanel() {
       className="shrink-0"
     >
       <div className="border border-line-strong bg-panel focus-within:border-accent">
-        <label className="sr-only" htmlFor="weis-query">
+        <label className="sr-only" htmlFor="wies-query">
           Ask a question about the geographic data
         </label>
         <textarea
-          id="weis-query"
+          id="wies-query"
           ref={textareaRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value.slice(0, MAX_LENGTH))}

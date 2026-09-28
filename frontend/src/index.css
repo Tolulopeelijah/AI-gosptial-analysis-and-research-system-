@@ -167,7 +167,7 @@
   }
 
   /* County labels are rendered as a tooltip-like pane so they scale with zoom. */
-  .weis-label {
+  .wies-label {
     background: transparent;
     border: none;
     box-shadow: none;
@@ -182,7 +182,7 @@
       0 0 5px var(--color-panel);
     white-space: nowrap;
   }
-  .weis-label:before {
+  .wies-label:before {
     display: none;
   }
 

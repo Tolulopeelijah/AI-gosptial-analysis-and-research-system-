@@ -24,7 +24,7 @@ export function PaperPanel() {
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = 'weis-report.md'
+    anchor.download = 'wies-report.md'
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()

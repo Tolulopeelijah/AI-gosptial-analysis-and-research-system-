@@ -153,6 +153,10 @@ class Orchestrator:
                         if total else
                         f"sampled first {out.get('count', 0)} (server cap)"
                     )
+                for le in (out.get("layer_errors") or [])[:1]:
+                    err_short = le if len(le) <= 180 else le[:180] + "…"
+                    sample_note += (("; " if sample_note else "")
+                                    + f"layer trouble: {err_short}")
                 layers.append(feature_collection(
                     out.get("features", []),
                     dataset=out.get("dataset", ""),
@@ -291,7 +295,7 @@ class Orchestrator:
         if sources:
             titles = [s.get("title") or s.get("source") or s.get("dataset")
                       or s.get("url") for s in sources[:5]]
-            titles = [t for t in titles if t]
+            titles = list(dict.fromkeys(t for t in titles if t))
             if titles:
                 parts.append("Sources: " + "; ".join(titles) + ".")
         for e in errors:

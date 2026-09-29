@@ -110,10 +110,12 @@ def query_arcgis(
     max_features = max(1, min(int(max_features), MAX_FEATURES))
     all_features: List[Dict[str, Any]] = []
     geometry_type = ""
-    errors: List[str] = []
+    errors: List[str] = []        # fatal per-URL failures (no features kept)
+    layer_errors: List[str] = []  # partial failures (kept what we could)
     total_count: Optional[int] = None  # server-side total (returnCountOnly sum)
     per_url_counts: List[Dict[str, Any]] = []
     for url in urls:
+        per_layer: List[Dict[str, Any]] = []
         try:
             # Cheap server-side total so answers can say "first N of M".
             try:
@@ -128,7 +130,8 @@ def query_arcgis(
                     c_val = int(c_payload["count"])
                     total_count = (c_val if total_count is None
                                    else total_count + c_val)
-                    per_url_counts.append({"url": url, "total": c_val})
+                    per_url_counts.append({"url": url, "total": c_val,
+                                           "fetched": 0})
             except Exception:
                 pass  # totals are best-effort; the feature fetch decides ok/fail
             # Per-URL budget (not first-URL-wins): every layer URL returns up
@@ -158,19 +161,30 @@ def query_arcgis(
                         "spatialRel": "esriSpatialRelIntersects",
                     }
                 )
-            # Pagination via resultOffset where supported.
+            # Pagination via resultOffset where supported. A failed page
+            # must not nuke earlier pages: keep the partial layer and note
+            # it (previously a page-2 error silently zeroed the whole URL —
+            # the "14 of 3383" signature: totals summed, features vanished).
             offset = 0
-            per_layer: List[Dict[str, Any]] = []
             while True:
-                if offset:
-                    params["resultOffset"] = offset
-                resp = requests.get(
-                    url.rstrip("/") + "/query", params=params, timeout=TIMEOUT
-                )
-                resp.raise_for_status()
-                page = resp.json()
-                if "error" in page:
-                    raise RuntimeError(page["error"])
+                try:
+                    if offset:
+                        params["resultOffset"] = offset
+                    resp = requests.get(
+                        url.rstrip("/") + "/query", params=params, timeout=TIMEOUT
+                    )
+                    resp.raise_for_status()
+                    page = resp.json()
+                    if "error" in page:
+                        raise RuntimeError(page["error"])
+                except Exception as exc:
+                    if per_layer:
+                        note = (f"{url}: kept {len(per_layer)} features "
+                                f"before page error: {exc}")
+                        layer_errors.append(note)
+                        log.warning("partial layer fetch: %s", note)
+                        break
+                    raise
                 feats = page.get("features", [])
                 per_layer.extend(feats)
                 if not page.get("exceededTransferLimit") or len(per_layer) >= max_features:
@@ -184,8 +198,16 @@ def query_arcgis(
             except Exception as exc:  # metadata is best-effort
                 log.warning("layer metadata fetch failed for %s: %s", url, exc)
             all_features.extend(per_layer[:max_features])
+            for entry in per_url_counts:
+                if entry.get("url") == url:
+                    entry["fetched"] = len(per_layer[:max_features])
         except Exception as exc:
-            errors.append(f"{url}: {exc}")
+            note = f"{url}: {exc}"
+            errors.append(note)
+            log.warning("layer fetch failed: %s", note)
+            for entry in per_url_counts:
+                if entry.get("url") == url:
+                    entry["error"] = str(exc)[:200]
 
     if not all_features and errors:
         return {"ok": False, "error": "; ".join(errors), "code": "data_unavailable"}
@@ -203,6 +225,7 @@ def query_arcgis(
         "truncated": truncated or sampled,
         "total_count": total_count,
         "per_url_counts": per_url_counts,
+        "layer_errors": layer_errors,
         "sources": [{"dataset": dataset, "url": u} for u in urls],
     }
 

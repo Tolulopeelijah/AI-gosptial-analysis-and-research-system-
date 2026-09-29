@@ -5,7 +5,6 @@ import { useMapState } from '@/state/MapProvider'
 import { Panel } from '@/components/ui/Panel'
 import { Button } from '@/components/ui/Button'
 import { AgentIcon, SearchIcon, XIcon } from '@/components/ui/Icons'
-import { ExampleQueries } from './ExampleQueries'
 import { MapContextChip } from './MapContextChip'
 
 const MAX_LENGTH = 500
@@ -90,7 +89,7 @@ export function QueryPanel() {
           onKeyDown={handleKeyDown}
           rows={3}
           spellCheck={false}
-          placeholder="Find septic systems within 2 km of floodplain areas"
+          placeholder="Ask a question about the geographic data"
           className="block w-full resize-none bg-transparent px-2.5 py-2 text-[13px] leading-relaxed text-ink outline-none placeholder:text-ink-3"
         />
 
@@ -128,16 +127,6 @@ export function QueryPanel() {
       </div>
 
       <MapContextChip />
-
-      <div className="mt-3">
-        <div className="mb-1.5 flex items-baseline justify-between">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-3">
-            Example queries
-          </span>
-          <span className="text-[10px] text-ink-3">click to load</span>
-        </div>
-        <ExampleQueries disabled={isRunning} />
-      </div>
     </Panel>
   )
 }

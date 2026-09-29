@@ -1,5 +1,3 @@
-import { EXAMPLE_QUERIES } from '@/data/scenarios'
-import { useQueryState } from '@/state/QueryProvider'
 import { AgentIcon } from '@/components/ui/Icons'
 
 /**
@@ -10,11 +8,6 @@ import { AgentIcon } from '@/components/ui/Icons'
  * tool's own vocabulary — no hero copy, no illustration.
  */
 export function MapEmptyState() {
-  const { fillDraft } = useQueryState()
-  const suggestions = EXAMPLE_QUERIES.filter((example) =>
-    ['ex-intersect', 'ex-buffer', 'ex-maumee', 'ex-combined'].includes(example.id),
-  )
-
   return (
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
       <div className="pointer-events-auto w-full max-w-md overflow-hidden rounded-[3px] border border-line-strong bg-panel/96 shadow-[0_6px_24px_rgb(11_11_11/0.10)] backdrop-blur-[2px]">
@@ -31,25 +24,6 @@ export function MapEmptyState() {
             systems, floodplains, Maumee water quality, NCWQR research — then draws
             the result here.
           </p>
-
-          <div className="mt-3 border-t border-line pt-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-3">
-              Try
-            </div>
-            <ul className="mt-1.5 space-y-1">
-              {suggestions.map((example) => (
-                <li key={example.id}>
-                  <button
-                    type="button"
-                    onClick={() => fillDraft(example.text)}
-                    className="w-full rounded-[2px] border border-transparent px-2 py-1 text-left text-[12px] font-medium text-ink-2 hover:border-line hover:bg-accent-soft/35 hover:text-ink"
-                  >
-                    <span className="font-bold text-accent">›</span> {example.text}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
         </div>
       </div>
     </div>

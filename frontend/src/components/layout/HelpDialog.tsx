@@ -1,12 +1,6 @@
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { CAPABILITY_NOTES, SHORTCUTS } from '@/data/app'
-import {
-  DEMO_ERROR_PATHS,
-  EXAMPLE_QUERIES,
-  EXAMPLE_TIER_LABELS,
-  EXAMPLE_TIER_ORDER,
-} from '@/data/scenarios'
 import { useQueryState } from '@/state/QueryProvider'
 import { BACKEND_ENDPOINT } from '@/services/geospatialApi'
 import type { QueryMode } from '@/types/query'
@@ -18,13 +12,11 @@ import { XIcon } from '@/components/ui/Icons'
  * Help.
  *
  * Written for someone evaluating the prototype: it states what the system does,
- * how to drive it from the keyboard, which example queries to try, and — more
- * usefully — which queries deliberately fail and what each failure is meant to
- * show. Every example and error path is clickable, so the dialog doubles as a
- * test harness for the error states.
+ * what each query mode means, how to drive it from the keyboard, and the scope
+ * of the current build.
  */
 export function HelpDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { fillDraft, setMode } = useQueryState()
+  const { setMode } = useQueryState()
 
   useEffect(() => {
     if (!open) return
@@ -37,14 +29,8 @@ export function HelpDialog({ open, onClose }: { open: boolean; onClose: () => vo
 
   if (!open) return null
 
-  const run = (text: string) => {
-    fillDraft(text)
-    onClose()
-  }
-
-  const runInMode = (text: string, mode: QueryMode) => {
+  const runInMode = (mode: QueryMode) => {
     setMode(mode)
-    fillDraft(text)
     onClose()
   }
 
@@ -84,71 +70,18 @@ export function HelpDialog({ open, onClose }: { open: boolean; onClose: () => vo
           <section>
             <Heading>Query modes</Heading>
             <p className="mt-1 text-[11px] leading-snug text-ink-3">
-              The mode switcher above the rail decides what a query means. Click one to
-              load its example in that mode.
+              The mode switcher above the rail decides what a query means.
             </p>
             <ul className="mt-2 divide-y divide-line border border-line">
               {MODE_GUIDE.map((guide) => (
                 <li key={guide.mode}>
                   <button
                     type="button"
-                    onClick={() => runInMode(guide.example, guide.mode)}
+                    onClick={() => runInMode(guide.mode)}
                     className="flex w-full flex-col gap-0.5 px-2.5 py-1.5 text-left hover:bg-panel-muted"
                   >
                     <span className="text-[12px] font-medium text-ink">
                       {guide.label} <span className="font-normal text-ink-3">— {guide.use}</span>
-                    </span>
-                    <span className="text-[12px] text-ink-2">“{guide.example}”</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section>
-            <Heading>Example queries</Heading>
-            <div className="mt-2 space-y-2">
-              {EXAMPLE_TIER_ORDER.map((tier) => (
-                <div key={tier}>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-3">
-                    {EXAMPLE_TIER_LABELS[tier]}
-                  </div>
-                  <ul className="mt-1 space-y-0.5">
-                    {EXAMPLE_QUERIES.filter((example) => example.tier === tier).map((example) => (
-                      <li key={example.id}>
-                        <button
-                          type="button"
-                          onClick={() => run(example.text)}
-                          className="w-full rounded-[2px] border border-transparent px-2 py-1 text-left hover:border-line hover:bg-panel-muted"
-                        >
-                          <span className="block text-[12px] text-ink">{example.text}</span>
-                          <span className="block text-[11px] text-ink-3">{example.note}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section>
-            <Heading>Failure paths worth trying</Heading>
-            <p className="mt-1 text-[11px] leading-snug text-ink-3">
-              Each of these is handled as its own case rather than one generic error. Click one to
-              load it into the composer.
-            </p>
-            <ul className="mt-2 divide-y divide-line border border-line">
-              {DEMO_ERROR_PATHS.map((path) => (
-                <li key={path.query}>
-                  <button
-                    type="button"
-                    onClick={() => run(path.query)}
-                    className="flex w-full flex-col gap-0.5 px-2.5 py-1.5 text-left hover:bg-panel-muted sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
-                  >
-                    <span className="text-[12px] text-ink">{path.query}</span>
-                    <span className="shrink-0 text-[11px] text-ink-3 sm:max-w-[52%] sm:text-right">
-                      {path.outcome}
                     </span>
                   </button>
                 </li>
@@ -201,30 +134,25 @@ function Heading({ children }: { children: ReactNode }) {
   )
 }
 
-const MODE_GUIDE: Array<{ mode: QueryMode; label: string; use: string; example: string }> = [
+const MODE_GUIDE: Array<{ mode: QueryMode; label: string; use: string }> = [
   {
     mode: 'chat',
     label: 'Chat',
     use: 'conversational Q&A; follow-ups remember the thread',
-    example: 'Why is phosphorus in the Maumee a concern for Lake Erie?',
   },
   {
     mode: 'research',
     label: 'Research',
     use: 'full workflow with aims; answer is a paper with references',
-    example:
-      'Find septic systems within 2 km of floodplain areas and summarize relevant NCWQR research.',
   },
   {
     mode: 'spatial',
     label: 'Spatial',
     use: 'map-first analysis of the same GIS pipeline',
-    example: 'Find septic systems that intersect floodplain areas.',
   },
   {
     mode: 'data',
     label: 'Data',
     use: 'raw tables and layers for download; upload your own files here',
-    example: 'Summarize total phosphorus (TP) in the Maumee dataset.',
   },
 ]

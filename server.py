@@ -75,6 +75,20 @@ def test_arcgis():
         "floodplains_4": settings.ARCGIS_FLOODPLAIN_4_URL,
     }
 
+    # MapServer counterparts supplied by the operator (county exposes the
+    # same views as MapServer; FeatureServer metadata 500s on every layer).
+    mapserver_layers = {
+        "septic_MapServer_0":
+            "https://lcenggis.co.lucas.oh.us/gisengserver/rest/services/"
+            "LCHD_SEPTIC/SEPTIC_SYSTEM_VIEW/MapServer/0",
+        "floodplain_MapServer_7":
+            "https://lcenggis.co.lucas.oh.us/gisengserver/rest/services/"
+            "FLOODPLAIN/FLOODPLAIN_VIEW/MapServer/7",
+        "floodplain_MapServer_6":
+            "https://lcenggis.co.lucas.oh.us/gisengserver/rest/services/"
+            "FLOODPLAIN/FLOODPLAIN_VIEW/MapServer/6",
+    }
+
     def probe(name: str, url: str):
         result: dict = {"layer": name, "url": url or "(not configured)"}
         if not url:
@@ -182,8 +196,87 @@ def test_arcgis():
     probes = [probe(name, url) for name, url in layers.items()]
     live_ok = sum(1 for p in probes if p.get("ok"))
 
+    map_probes = [probe(name, url) for name, url in mapserver_layers.items()]
+    map_ok = sum(1 for p in map_probes if p.get("ok"))
+
+    # 4. Service-root probes: if the layers 500 but the parent
+    # FeatureServer / services directory answers, the county DB/service
+    # is broken; if the roots also 500, the whole gisengserver instance
+    # is down (not a Render block — we already got HTTP 200s from it).
+    roots = {}
+    for label, root_url in {
+        "services_directory": "https://lcenggis.co.lucas.oh.us/gisengserver/rest/services?f=json",
+        "septic_service": "https://lcenggis.co.lucas.oh.us/gisengserver/rest/services/LCHD_SEPTIC/SEPTIC_SYSTEM_VIEW/FeatureServer?f=json",
+        "floodplain_service": "https://lcenggis.co.lucas.oh.us/gisengserver/rest/services/FLOODPLAIN/FLOODPLAIN_VIEW/FeatureServer?f=json",
+        "septic_map_service": "https://lcenggis.co.lucas.oh.us/gisengserver/rest/services/LCHD_SEPTIC/SEPTIC_SYSTEM_VIEW/MapServer?f=json",
+        "floodplain_map_service": "https://lcenggis.co.lucas.oh.us/gisengserver/rest/services/FLOODPLAIN/FLOODPLAIN_VIEW/MapServer?f=json",
+    }.items():
+        try:
+            t0 = time.time()
+            rr = requests.get(
+                root_url,
+                timeout=12,
+                headers={"User-Agent": "Mozilla/5.0 (diagnostic probe)"},
+            )
+            ms = int((time.time() - t0) * 1000)
+            try:
+                body = rr.json()
+            except Exception:
+                body = None
+            snippet = rr.text[:400]
+            if isinstance(body, dict) and "error" in body:
+                roots[label] = {"ok": False, "http": rr.status_code,
+                                "ms": ms, "error": str(body["error"]),
+                                "snippet": snippet}
+            elif rr.status_code != 200:
+                roots[label] = {"ok": False, "http": rr.status_code,
+                                "ms": ms, "snippet": snippet}
+            else:
+                keys = sorted(body.keys())[:20] if isinstance(body, dict) else []
+                roots[label] = {"ok": True, "http": rr.status_code, "ms": ms,
+                                "keys": keys, "snippet": snippet,
+                                "layers": body.get("layers")
+                                if isinstance(body, dict) else None,
+                                "services": (body.get("services")[:5]
+                                             if isinstance(body, dict)
+                                             and isinstance(body.get("services"),
+                                                              list) else None)}
+        except Exception as exc:
+            roots[label] = {"ok": False,
+                            "error": f"{type(exc).__name__}: {exc}"}
+
     # Root-cause hint: mock flag overrides live reachability everywhere.
-    if settings.ARCGIS_USE_MOCK:
+    meta_all_500 = (
+        live_ok == 0
+        and all("metadata_keys" in p and p.get("metadata_keys") == ["error"]
+                for p in probes if p.get("metadata_keys"))
+    )
+    if map_ok == len(map_probes) and map_ok > 0:
+        verdict = (
+            f"MapServer paths work ({map_ok}/{len(map_probes)}) — switch the "
+            "ARCGIS_*_URL env vars to these MapServer layer URLs and set "
+            "ARCGIS_USE_MOCK=false to serve live data. FeatureServer paths "
+            "remain broken county-side."
+        )
+    elif map_ok > 0:
+        verdict = (
+            f"MapServer partially works ({map_ok}/{len(map_probes)}). "
+            "Use the working MapServer URLs in ARCGIS_*_URL and keep mock "
+            "off only if all needed layers work; otherwise working layers go "
+            "live and failed ones return data_unavailable."
+        )
+    elif meta_all_500:
+        verdict = (
+            "County ArcGIS server reached OK from this host (HTTP 200), but "
+            "the application itself returns code 500 with empty message for "
+            "EVERY layer metadata request. This is a county-side failure "
+            "(service down / SDE database offline / service retired), NOT a "
+            "Render egress block. Keep ARCGIS_USE_MOCK=true until the county "
+            "fixes it; flipping to false will only surface data_unavailable "
+            "errors. See service_roots below: if the services directory is "
+            "also 500, the whole gisengserver instance is down."
+        )
+    elif settings.ARCGIS_USE_MOCK:
         verdict = (
             "ARCGIS_USE_MOCK=true on this host, so ALL queries serve demo "
             "fixtures even if the live servers below are reachable. "
@@ -215,8 +308,11 @@ def test_arcgis():
         "mock_enabled": settings.ARCGIS_USE_MOCK,
         "egress_ip": egress_ip,
         "live_reachable": f"{live_ok}/{len(probes)}",
+        "mapserver_reachable": f"{map_ok}/{len(map_probes)}",
         "verdict": verdict,
         "layers": probes,
+        "mapserver_layers": map_probes,
+        "service_roots": roots,
     })
 
 

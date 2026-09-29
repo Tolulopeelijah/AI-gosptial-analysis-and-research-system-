@@ -79,6 +79,8 @@ Rules:
   discover_tools/search_tools/get_tool_metadata tools can inspect the catalogue
   from inside a plan when the right capability is unclear.
 - query_arcgis retrieves features; buffer/intersect/nearest process them.
+- For county-wide septic/floodplain fetches pass "max_features": 2000
+  (server cap); results still report total vs sampled counts.
 - query_maumee answers tabular water-quality questions (no per-row geometry exists).
 - search_knowledge_base answers publication/science questions.
 - Every step needs "id", "tool", "arguments" (a JSON object of actual values), and "depends_on" (a JSON array of step ids, possibly empty).
@@ -328,11 +330,13 @@ class RulePlanner:
         elif wants_septic or wants_flood:
             if "septic_systems" in avail:
                 steps.append(PlanStep(id="septic", tool="query_arcgis",
-                                      arguments={"dataset": "septic_systems"},
+                                      arguments={"dataset": "septic_systems",
+                                                 "max_features": 2000},
                                       depends_on=[]))
             if "floodplains" in avail:
                 steps.append(PlanStep(id="floodplains", tool="query_arcgis",
-                                      arguments={"dataset": "floodplains"},
+                                      arguments={"dataset": "floodplains",
+                                                 "max_features": 2000},
                                       depends_on=[]))
             dist = _DISTANCE_RE.search(q)
             needs_gis = ("intersect" in q.lower() or " in " in f" {q.lower()} "

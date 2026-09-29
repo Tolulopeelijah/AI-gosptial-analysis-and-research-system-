@@ -145,10 +145,19 @@ class Orchestrator:
                 mocked.append(out.get("dataset", step.id))
             if isinstance(out, dict) and out.get("type") == "FeatureCollection":
                 is_final = step.id in ("result",) or step.id == plan.steps[-1].id
+                sample_note = ""
+                if out.get("truncated"):
+                    total = out.get("total_count")
+                    sample_note = (
+                        f"sampled first {out.get('count', 0)} of {total}"
+                        if total else
+                        f"sampled first {out.get('count', 0)} (server cap)"
+                    )
                 layers.append(feature_collection(
                     out.get("features", []),
                     dataset=out.get("dataset", ""),
                     title=step.id.replace("_", " ").title(),
+                    description=sample_note,
                     geometry_type=out.get("geometry_type", ""),
                     role="primary" if is_final else "context",
                     style=out.get("style"),
@@ -273,12 +282,25 @@ class Orchestrator:
         parts = [f"Goal: {plan.goal}."]
         for layer in layers:
             md = layer["metadata"]
-            parts.append(f"{md['title']}: {md['count']} features "
-                         f"({md.get('dataset', '')}).".strip())
+            seg = (f"{md['title']}: {md['count']} features "
+                   f"({md.get('dataset', '')}).".strip())
+            if md.get("description"):
+                seg += f" [{md['description']}]"
+            parts.append(seg)
         parts.extend(table_notes)
         if sources:
-            titles = [s.get("title") or s.get("source") for s in sources[:5]]
-            parts.append("Sources: " + "; ".join(t for t in titles if t) + ".")
+            titles = [s.get("title") or s.get("source") or s.get("dataset")
+                      or s.get("url") for s in sources[:5]]
+            titles = [t for t in titles if t]
+            if titles:
+                parts.append("Sources: " + "; ".join(titles) + ".")
         for e in errors:
             parts.append(f"Step '{e.get('step')}' failed: {e.get('error')}.")
+        # A zero intersect over sampled heads is "no overlap in the sample",
+        # not proof of zero county-wide — say so instead of a bare 0.
+        if (layers and layers[-1]["metadata"].get("count") == 0
+                and any(l["metadata"].get("description", "").startswith("sampled")
+                        for l in layers)):
+            parts.append("0 intersections in the sampled subsets; "
+                         "narrow with a place name or bbox for a full-county check.")
         return " ".join(p for p in parts if p)

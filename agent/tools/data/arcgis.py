@@ -111,8 +111,29 @@ def query_arcgis(
     all_features: List[Dict[str, Any]] = []
     geometry_type = ""
     errors: List[str] = []
+    total_count: Optional[int] = None  # server-side total (returnCountOnly sum)
+    per_url_counts: List[Dict[str, Any]] = []
     for url in urls:
         try:
+            # Cheap server-side total so answers can say "first N of M".
+            try:
+                c_resp = requests.get(
+                    url.rstrip("/") + "/query",
+                    params={"where": where, "returnCountOnly": "true",
+                            "f": "json"},
+                    timeout=TIMEOUT,
+                )
+                c_payload = c_resp.json()
+                if "count" in c_payload:
+                    c_val = int(c_payload["count"])
+                    total_count = (c_val if total_count is None
+                                   else total_count + c_val)
+                    per_url_counts.append({"url": url, "total": c_val})
+            except Exception:
+                pass  # totals are best-effort; the feature fetch decides ok/fail
+            # Per-URL budget (not first-URL-wins): every layer URL returns up
+            # to max_features, so e.g. floodplains MapServer/7 is never
+            # starved by MapServer/6 filling a shared budget.
             params: Dict[str, Any] = {
                 "where": where,
                 "outFields": out_fields,
@@ -163,22 +184,25 @@ def query_arcgis(
             except Exception as exc:  # metadata is best-effort
                 log.warning("layer metadata fetch failed for %s: %s", url, exc)
             all_features.extend(per_layer[:max_features])
-            if len(all_features) >= max_features:
-                break
         except Exception as exc:
             errors.append(f"{url}: {exc}")
 
     if not all_features and errors:
         return {"ok": False, "error": "; ".join(errors), "code": "data_unavailable"}
 
+    capped = max_features * max(1, len(urls))
+    sampled = len(all_features) > max_features and len(urls) == 1
+    truncated = total_count is not None and len(all_features) < total_count
     return {
         "ok": True,
         "type": "FeatureCollection",
-        "features": all_features[:max_features],
-        "count": len(all_features[:max_features]),
+        "features": all_features[:capped],
+        "count": len(all_features[:capped]),
         "dataset": dataset,
         "geometry_type": geometry_type,
-        "truncated": len(all_features) >= max_features,
+        "truncated": truncated or sampled,
+        "total_count": total_count,
+        "per_url_counts": per_url_counts,
         "sources": [{"dataset": dataset, "url": u} for u in urls],
     }
 
@@ -203,7 +227,8 @@ QUERY_ARCGIS_SCHEMA = {
         },
         "max_features": {
             "type": "integer",
-            "description": "Max features to return (default 1000, cap 2000).",
+            "description": "Max features per layer URL (default 1000, cap 2000; "
+                           "multi-URL datasets return up to max per URL).",
         },
         "bbox": {
             "type": "string",

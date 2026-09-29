@@ -119,6 +119,10 @@ def query_arcgis(
                 "returnGeometry": "true" if return_geometry else "false",
                 "f": "geojson",
                 "resultRecordCount": max_features,
+                # County layers are natively wkid 103129 (Ohio North, feet);
+                # force WGS84 so the frontend map plots correctly. Works on
+                # both MapServer and FeatureServer layer query endpoints.
+                "outSR": 4326,
             }
             if bbox:
                 try:

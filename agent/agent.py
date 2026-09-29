@@ -119,9 +119,26 @@ class GeospatialAgent:
                         f"rows={json.dumps(t.get('rows', [])[:8])}; "
                         f"total rows={t.get('row_count')}"),
                 })
+            # Nothing to ground on (pure-GIS plan mislabelled, or knowledge
+            # search returned zero hits): skip the rewrite so the
+            # orchestrator's deterministic summary survives. Calling the LLM
+            # with zero sources can only produce the "do not contain"
+            # fallback, clobbering good GIS results (count/layers intact,
+            # explanation destroyed).
+            if not prompt_refs:
+                emit({"type": "completed",
+                      "explanation": response.get("explanation"),
+                      "dataset": response.get("dataset"),
+                      "count": response.get("count")})
+                return response
             llm_text = self._explain_with_llm(
                 query, response.get("explanation", ""), prompt_refs,
                 history=history if mode == "chat" else None)
+            _FALLBACK = "the indexed sources do not contain this information"
+            if llm_text and _FALLBACK in llm_text.strip().lower():
+                # Knowledge fallback must never erase GIS layers/tables.
+                # Keep the deterministic draft; still record the check below.
+                llm_text = ""
             if llm_text:
                 response["explanation"] = llm_text
                 # The rewrite must not drop the mock-data honesty note.

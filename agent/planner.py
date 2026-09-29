@@ -200,7 +200,6 @@ class OpenAIPlanner:
             if isinstance(args, dict) and ("properties" in args or "$schema" in args):
                 raise ValueError("planner echoed a schema instead of values")
         steps = [PlanStep(**s) for s in raw_steps]
-        kind = data.get("kind", "gis")
         if not steps:
             return {
                 "plan": None, "kind": "unsupported",
@@ -213,14 +212,17 @@ class OpenAIPlanner:
             known_datasets=set(registry),
             gis_result_tools=_ref_consuming_tools(),
         )
-        if kind not in ("gis", "knowledge", "combined"):
-            tools_used = {s.tool for s in steps}
-            if tools_used == {"search_knowledge_base"}:
-                kind = "knowledge"
-            elif "search_knowledge_base" in tools_used:
-                kind = "combined"
-            else:
-                kind = "gis"
+        # Derive kind from the tools actually used — never trust the model's
+        # label. The system-prompt example is kind "combined", which models
+        # otherwise copy onto pure-GIS plans; that mislabel makes agent.py
+        # run the knowledge rewrite and clobber good GIS explanations.
+        tools_used = {s.tool for s in steps}
+        if tools_used == {"search_knowledge_base"}:
+            kind = "knowledge"
+        elif "search_knowledge_base" in tools_used:
+            kind = "combined"
+        else:
+            kind = "gis"
         return {"plan": plan, "kind": kind, "reason": ""}
 
 

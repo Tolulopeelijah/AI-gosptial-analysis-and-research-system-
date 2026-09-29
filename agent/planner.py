@@ -24,7 +24,25 @@ from .registry import available_datasets, build_registry
 
 log = logging.getLogger(__name__)
 
-GIS_RESULT_TOOLS = {"buffer", "intersect", "nearest"}
+def _known_tools() -> set:
+    """Live tool names from the registry (single source of truth)."""
+    from .tools.registry import build_tool_registry
+
+    return set(build_tool_registry().names())
+
+
+def _ref_consuming_tools() -> set:
+    """Tools whose FeatureCollection inputs arrive via $step_id references.
+
+    Computed from registry metadata so the validator tracks new tools
+    automatically; a step using one needs dependencies or $ inputs.
+    """
+    from .tools.registry import build_tool_registry
+
+    reg = build_tool_registry()
+    return {n for n in reg.names()
+            if reg.get(n).metadata()["input_type"] == "FeatureCollection"
+            and n not in ("create_map_result",)}
 
 PLAN_JSON_SCHEMA: Dict[str, Any] = {
     "type": "object",
@@ -56,6 +74,10 @@ Decompose the user query into steps, each executable by exactly one available to
 Rules:
 - Use ONLY the listed tool names and dataset names.
 - GIS tools consume prior results via "$step_id" references (e.g. "input": "$floodplains").
+- The tool list below is the full catalogue (one line each); 15 core tools also
+  have full schemas attached. Prefer catalogue tools over improvisation; the
+  discover_tools/search_tools/get_tool_metadata tools can inspect the catalogue
+  from inside a plan when the right capability is unclear.
 - query_arcgis retrieves features; buffer/intersect/nearest process them.
 - query_maumee answers tabular water-quality questions (no per-row geometry exists).
 - search_knowledge_base answers publication/science questions.
@@ -74,49 +96,35 @@ Rules:
  ]}
 Respond with ONLY the JSON plan object."""
 
+# Full function schemas are sent for these core tools only; the other ~105
+# tools are described in one compact line each (name, category, use, key
+# arguments) so planning stays within context while keeping the whole
+# toolbox addressable. Plans may name any catalogued tool — structure is
+# enforced afterwards by validate_plan.
+CORE_SCHEMA_TOOLS = [
+    "query_arcgis", "query_maumee", "query_user_dataset", "buffer",
+    "intersect", "nearest", "spatial_join", "filter_features",
+    "search_datasets", "search_knowledge_base", "list_datasets",
+    "describe_dataset", "discover_tools", "search_tools", "get_tool_metadata",
+]
 
-def _tool_catalog(registry) -> Tuple[List[Dict[str, Any]], List[str]]:
-    from .tools.data.arcgis import QUERY_ARCGIS_REQUIRED, QUERY_ARCGIS_SCHEMA
-    from .tools.data.xlsx import QUERY_MAUMEE_REQUIRED, QUERY_MAUMEE_SCHEMA
-    from .tools.data.uploads import (
-        QUERY_USER_DATASET_REQUIRED, QUERY_USER_DATASET_SCHEMA,
-    )
-    from .tools.gis.operations import (
-        BUFFER_REQUIRED, BUFFER_SCHEMA, INTERSECT_REQUIRED, INTERSECT_SCHEMA,
-        NEAREST_REQUIRED, NEAREST_SCHEMA,
-    )
-    from .tools.knowledge.retrieval import SEARCH_KB_REQUIRED, SEARCH_KB_SCHEMA
-    from .tools.utility.schema import (
-        DESCRIBE_DATASET_REQUIRED, DESCRIBE_DATASET_SCHEMA,
-        LIST_DATASETS_REQUIRED, LIST_DATASETS_SCHEMA,
-    )
 
-    catalog = [
-        {"name": "query_arcgis", "use": "retrieve GeoJSON features from an ArcGIS dataset",
-         "args": QUERY_ARCGIS_SCHEMA, "required": QUERY_ARCGIS_REQUIRED},
-        {"name": "query_maumee", "use": "tabular Maumee water-quality observations/summaries",
-         "args": QUERY_MAUMEE_SCHEMA, "required": QUERY_MAUMEE_REQUIRED},
-        {"name": "query_user_dataset", "use": "features/rows from a user-uploaded dataset by registered name",
-         "args": QUERY_USER_DATASET_SCHEMA, "required": QUERY_USER_DATASET_REQUIRED},
-        {"name": "buffer", "use": "buffer a FeatureCollection result by distance",
-         "args": BUFFER_SCHEMA, "required": BUFFER_REQUIRED},
-        {"name": "intersect", "use": "features of A intersecting B",
-         "args": INTERSECT_SCHEMA, "required": INTERSECT_REQUIRED},
-        {"name": "nearest", "use": "k nearest B features per A feature",
-         "args": NEAREST_SCHEMA, "required": NEAREST_REQUIRED},
-        {"name": "search_knowledge_base", "use": "NCWQR publication/context passages",
-         "args": SEARCH_KB_SCHEMA, "required": SEARCH_KB_REQUIRED},
-        {"name": "list_datasets", "use": "list available datasets",
-         "args": LIST_DATASETS_SCHEMA, "required": LIST_DATASETS_REQUIRED},
-        {"name": "describe_dataset", "use": "live metadata for one dataset",
-         "args": DESCRIBE_DATASET_SCHEMA, "required": DESCRIBE_DATASET_REQUIRED},
-    ]
-    ds = [
-        {"name": n, "description": d.description,
-         "available": d.available, "access": d.access_method}
-        for n, d in registry.items()
-    ]
-    return catalog, ds
+def _compact_catalog() -> List[str]:
+    """One line per tool from live registry metadata (no full schemas)."""
+    from .tools.registry import build_tool_registry
+
+    reg = build_tool_registry()
+    lines = []
+    for name in reg.names():
+        meta = reg.get(name).metadata()
+        args = ", ".join(
+            (a + "*") if a in meta["required"] else a
+            for a in meta["arguments"]) or "no arguments"
+        net = " [network]" if meta["network"] else ""
+        lines.append(
+            f"- {meta['name']} ({meta['category']}){net}: "
+            f"{meta['description']} | args: {args}")
+    return lines
 
 
 class OpenAIPlanner:
@@ -130,14 +138,16 @@ class OpenAIPlanner:
         from .tools.registry import build_tool_registry
 
         registry = build_registry()
-        catalog, datasets = _tool_catalog(registry)
-        tool_defs = build_tool_registry().openai_definitions()
-        lines = ["TOOLS (name — use — arguments):"]
-        for t in catalog:
-            req = ", ".join(t["required"]) or "no required args"
-            lines.append(f"- {t['name']} — {t['use']} — required: {req}")
+        tool_registry = build_tool_registry()
+        tool_defs = [t.openai_definition() for n, t in
+                     ((n, tool_registry.get(n)) for n in CORE_SCHEMA_TOOLS)
+                     if t is not None]
+        lines = ["TOOLS (all addressable by name — full schemas above for core tools only):",
+                 *_compact_catalog()]
         lines.append("DATASETS (name | available | access):")
-        for d in datasets:
+        for d in ({"name": n, "description": dd.description,
+                   "available": dd.available, "access": dd.access_method}
+                  for n, dd in registry.items()):
             lines.append(
                 f"- {d['name']} | available={d['available']} | via {d['access']} — {d['description']}"
             )
@@ -183,10 +193,7 @@ class OpenAIPlanner:
         if not isinstance(data, dict) or not isinstance(data.get("steps"), list):
             raise ValueError("planner output is not a plan object")
         registry = build_registry()
-        known_tools = {
-            "query_arcgis", "query_maumee", "query_user_dataset", "buffer", "intersect", "nearest",
-            "search_knowledge_base", "list_datasets", "describe_dataset",
-        }
+        known_tools = _known_tools()
         raw_steps = data.get("steps", [])
         for s in raw_steps:
             args = (s.get("arguments") if isinstance(s, dict) else None) or {}
@@ -204,7 +211,7 @@ class OpenAIPlanner:
             ExecutionPlan(goal=data.get("goal", query), steps=steps),
             known_tools=known_tools,
             known_datasets=set(registry),
-            gis_result_tools=GIS_RESULT_TOOLS,
+            gis_result_tools=_ref_consuming_tools(),
         )
         if kind not in ("gis", "knowledge", "combined"):
             tools_used = {s.tool for s in steps}
@@ -290,6 +297,20 @@ class RulePlanner:
                 wants_knowledge)
             if any(s.tool == "search_knowledge_base" for s in steps):
                 kind = "combined"
+        elif re.search(r"\bhow many\b", q, re.I) and (wants_septic or wants_flood):
+            target, ds = (("septic", "septic_systems") if wants_septic
+                          else ("floodplains", "floodplains"))
+            steps = [PlanStep(id=target, tool="query_arcgis",
+                              arguments={"dataset": ds}, depends_on=[]),
+                     PlanStep(id="count", tool="count_features",
+                              arguments={"input": f"${target}"},
+                              depends_on=[target])]
+        elif re.search(r"\b(area|how large|how big|total size)\b", q, re.I) and wants_flood:
+            steps = [PlanStep(id="floodplains", tool="query_arcgis",
+                              arguments={"dataset": "floodplains"}, depends_on=[]),
+                     PlanStep(id="area", tool="calculate_area",
+                              arguments={"input": "$floodplains", "unit": "sqkm"},
+                              depends_on=["floodplains"])]
         elif wants_maumee and not (wants_septic or wants_flood):
             param = self._param(q)
             operation = "extremes" if _EXTREMES_RE.search(q) else "summary"
@@ -355,11 +376,9 @@ class RulePlanner:
                     "reason": "No executable steps could be derived from this query."}
         plan = validate_plan(
             ExecutionPlan(goal=q, steps=steps),
-            known_tools={"query_arcgis", "query_maumee", "query_user_dataset", "buffer", "intersect",
-                         "nearest", "search_knowledge_base", "list_datasets",
-                         "describe_dataset"},
+            known_tools=_known_tools(),
             known_datasets=set(registry),
-            gis_result_tools=GIS_RESULT_TOOLS,
+            gis_result_tools=_ref_consuming_tools(),
         )
         return {"plan": plan, "kind": kind, "reason": ""}
 

@@ -75,12 +75,12 @@ class GeospatialAgent:
               "plan": [{"id": s.id, "tool": s.tool, "label": s.id} for s in plan.steps]})
         # Re-validate at the agent boundary (defence in depth).
         from .plans import validate_plan
-        from .planner import GIS_RESULT_TOOLS
+        from .planner import _ref_consuming_tools
         from .registry import build_registry
 
         validate_plan(plan, known_tools=set(self.tools.names()),
                       known_datasets=set(build_registry()),
-                      gis_result_tools=GIS_RESULT_TOOLS)
+                      gis_result_tools=_ref_consuming_tools())
         response = self.orchestrator.execute(plan, query_id=query_id, on_event=on_event)
         response["timingMs"] = int((time.time() - t0) * 1000)
         response.setdefault("execution", {})["mode"] = mode

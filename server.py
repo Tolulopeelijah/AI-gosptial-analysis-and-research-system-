@@ -47,6 +47,136 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.get("/test-arcgis")
+def test_arcgis():
+    """Backend-only live ArcGIS connectivity check.
+
+    Hits the Lucas County FeatureServer URLs *directly from this backend*
+    (bypassing ARCGIS_USE_MOCK), so you can tell whether the host
+    (e.g. Render) is blocked vs. the app just serving fixtures.
+
+    Open in a browser or curl it — no frontend needed:
+        GET https://<your-app>.onrender.com/test-arcgis
+
+    Returns per-layer metadata + 1-feature query attempts with timings,
+    plus the likely root cause when the app still serves demo data.
+    """
+    import socket
+    import time
+    from urllib.parse import urlparse
+
+    import requests
+
+    from agent.config import settings
+
+    layers = {
+        "septic_systems_0": settings.ARCGIS_SEPTIC_URL,
+        "floodplains_0": settings.ARCGIS_FLOODPLAIN_0_URL,
+        "floodplains_4": settings.ARCGIS_FLOODPLAIN_4_URL,
+    }
+
+    def probe(name: str, url: str):
+        result: dict = {"layer": name, "url": url or "(not configured)"}
+        if not url:
+            result.update({"ok": False, "reason": "URL env var empty on this host"})
+            return result
+        parsed = urlparse(url)
+        # 1. DNS — distinguishes "host network blocked" from HTTP-level blocks.
+        try:
+            result["dns_ip"] = socket.gethostbyname(parsed.hostname or "")
+        except Exception as exc:
+            result.update({
+                "ok": False, "stage": "dns",
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            return result
+        # 2. Live metadata (?f=json) — proves TCP+TLS+HTTP works to the county.
+        try:
+            t0 = time.time()
+            meta_resp = requests.get(url.rstrip("/") + "?f=json", timeout=12)
+            result["metadata_ms"] = int((time.time() - t0) * 1000)
+            result["metadata_status"] = meta_resp.status_code
+            meta_resp.raise_for_status()
+            meta = meta_resp.json()
+            result["service_name"] = meta.get("name")
+            result["geometryType"] = meta.get("geometryType")
+            result["maxRecordCount"] = meta.get("maxRecordCount")
+        except Exception as exc:
+            result.update({
+                "ok": False, "stage": "metadata",
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            return result
+        # 3. Live 1-feature query — proves the /query path the agent uses.
+        try:
+            t0 = time.time()
+            q_resp = requests.get(
+                url.rstrip("/") + "/query",
+                params={"where": "1=1", "outFields": "*",
+                        "returnGeometry": "false",
+                        "f": "json", "resultRecordCount": 1},
+                timeout=12,
+            )
+            result["query_ms"] = int((time.time() - t0) * 1000)
+            result["query_status"] = q_resp.status_code
+            q_resp.raise_for_status()
+            payload = q_resp.json()
+            if "error" in payload:
+                result.update({"ok": False, "stage": "query",
+                               "error": str(payload["error"])})
+                return result
+            result.update({
+                "ok": True,
+                "feature_count": len(payload.get("features", [])),
+            })
+        except Exception as exc:
+            result.update({
+                "ok": False, "stage": "query",
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+        return result
+
+    probes = [probe(name, url) for name, url in layers.items()]
+    live_ok = sum(1 for p in probes if p.get("ok"))
+
+    # Root-cause hint: mock flag overrides live reachability everywhere.
+    if settings.ARCGIS_USE_MOCK:
+        verdict = (
+            "ARCGIS_USE_MOCK=true on this host, so ALL queries serve demo "
+            "fixtures even if the live servers below are reachable. "
+            "Set ARCGIS_USE_MOCK=false in the Render env vars and redeploy "
+            "to serve live data."
+        )
+    elif live_ok == len(probes):
+        verdict = "Live ArcGIS reachable and mock disabled — app should serve live data."
+    elif live_ok > 0:
+        verdict = (
+            "Partial live reachability — reachable layers serve live data, "
+            "failed layers return data_unavailable errors (not demo data)."
+        )
+    else:
+        verdict = (
+            "Live ArcGIS unreachable from this host (all probes failed) — "
+            "likely host egress firewall / county geo-allowlist. "
+            "Keep ARCGIS_USE_MOCK=true here, or allowlist Render egress IPs "
+            "on the county server."
+        )
+
+    try:
+        import requests as _r
+        egress_ip = _r.get("https://api.ipify.org", timeout=8).text.strip()
+    except Exception:
+        egress_ip = "(lookup failed)"
+
+    return jsonify({
+        "mock_enabled": settings.ARCGIS_USE_MOCK,
+        "egress_ip": egress_ip,
+        "live_reachable": f"{live_ok}/{len(probes)}",
+        "verdict": verdict,
+        "layers": probes,
+    })
+
+
 @app.get("/api/datasets")
 def list_datasets():
     from agent.registry import available_datasets, build_registry

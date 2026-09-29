@@ -1,0 +1,3831 @@
+{
+  "tool_count": 120,
+  "tools": [
+    {
+      "name": "aggregate_features",
+      "category": "analysis",
+      "description": "Single rolled-up value over a numeric field.",
+      "arguments": [
+        "field",
+        "input",
+        "operation"
+      ],
+      "required": [
+        "input",
+        "field"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "features-or-table",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference (features or table)."
+          },
+          "field": {
+            "type": "string",
+            "description": "Numeric field."
+          },
+          "operation": {
+            "type": "string",
+            "description": "sum|mean|min|max|count."
+          }
+        }
+      }
+    },
+    {
+      "name": "aggregate_join",
+      "category": "analysis",
+      "description": "Roll B values up per A feature (count/sum/mean/min/max).",
+      "arguments": [
+        "field",
+        "input_a",
+        "input_b",
+        "operation",
+        "predicate"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference (one output each)."
+          },
+          "input_b": {
+            "description": "Result reference (rolled up)."
+          },
+          "operation": {
+            "type": "string",
+            "description": "count|sum|mean|min|max."
+          },
+          "field": {
+            "type": "string",
+            "description": "Numeric B field (non-count ops)."
+          },
+          "predicate": {
+            "type": "string",
+            "description": "Default 'intersects'."
+          }
+        }
+      }
+    },
+    {
+      "name": "aggregate_temporal",
+      "category": "analysis",
+      "description": "Resample a field to D/W/ME/YE buckets.",
+      "arguments": [
+        "field",
+        "freq",
+        "input",
+        "operation",
+        "time_field"
+      ],
+      "required": [
+        "input",
+        "field"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "features-or-table",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "field": {
+            "type": "string"
+          },
+          "freq": {
+            "type": "string",
+            "description": "D|W|ME (default)|YE."
+          },
+          "operation": {
+            "type": "string",
+            "description": "mean (default)|sum|min|max|count."
+          },
+          "time_field": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "betweenness_centrality",
+      "category": "network",
+      "description": "Brandes betweenness, top nodes with lon/lat.",
+      "arguments": [
+        "network",
+        "top_n"
+      ],
+      "required": [
+        "network"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": true,
+      "input_type": "network",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "network": {
+            "description": "Result reference to a built network."
+          },
+          "top_n": {
+            "type": "integer",
+            "description": "Default 10."
+          }
+        }
+      }
+    },
+    {
+      "name": "buffer",
+      "category": "gis",
+      "description": "Buffer a FeatureCollection result by a distance (CRS-aware; metres-based). Input is a $step_id reference.",
+      "arguments": [
+        "distance",
+        "input",
+        "unit"
+      ],
+      "required": [
+        "input",
+        "distance"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "m",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference, e.g. '$floodplains'."
+          },
+          "distance": {
+            "type": "number",
+            "description": "Buffer distance."
+          },
+          "unit": {
+            "type": "string",
+            "description": "'meters' (default), 'kilometers', 'feet', 'miles'."
+          }
+        }
+      }
+    },
+    {
+      "name": "build_network",
+      "category": "network",
+      "description": "Routable metric graph from LineStrings.",
+      "arguments": [
+        "input",
+        "snap_tolerance_m"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "network",
+      "units": "m",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference with LineString features."
+          },
+          "snap_tolerance_m": {
+            "type": "number",
+            "description": "Default 5."
+          }
+        }
+      }
+    },
+    {
+      "name": "calculate_area",
+      "category": "geometry",
+      "description": "Polygon area per feature (sqm/sqkm).",
+      "arguments": [
+        "input",
+        "unit"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "m2|km2",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference with polygons."
+          },
+          "unit": {
+            "type": "string",
+            "description": "'sqm' (default) or 'sqkm'."
+          }
+        }
+      }
+    },
+    {
+      "name": "calculate_bearing",
+      "category": "geometry",
+      "description": "Bearing in degrees clockwise from north.",
+      "arguments": [
+        "input_a",
+        "input_b"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "degrees",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference (origins)."
+          },
+          "input_b": {
+            "description": "Result reference (destinations)."
+          }
+        }
+      }
+    },
+    {
+      "name": "calculate_centroid_coords",
+      "category": "geometry",
+      "description": "Centroid lon/lat per feature.",
+      "arguments": [
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "degrees",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          }
+        }
+      }
+    },
+    {
+      "name": "calculate_correlation",
+      "category": "analysis",
+      "description": "Pearson r between two fields.",
+      "arguments": [
+        "field_x",
+        "field_y",
+        "input"
+      ],
+      "required": [
+        "input",
+        "field_x",
+        "field_y"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "features-or-table",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference (features or table)."
+          },
+          "field_x": {
+            "type": "string"
+          },
+          "field_y": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "calculate_geometry_statistics",
+      "category": "geometry",
+      "description": "Area/length/vertices/bbox per feature.",
+      "arguments": [
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          }
+        }
+      }
+    },
+    {
+      "name": "calculate_length",
+      "category": "geometry",
+      "description": "Line length per feature (m/km).",
+      "arguments": [
+        "input",
+        "unit"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "m|km",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference with lines."
+          },
+          "unit": {
+            "type": "string",
+            "description": "'meters' (default) or 'kilometers'."
+          }
+        }
+      }
+    },
+    {
+      "name": "calculate_mean",
+      "category": "analysis",
+      "description": "Mean of a numeric field.",
+      "arguments": [
+        "field",
+        "input"
+      ],
+      "required": [
+        "input",
+        "field"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "features-or-table",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference (features or table)."
+          },
+          "field": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "calculate_ndbi",
+      "category": "sensing",
+      "description": "(SWIR\u2212NIR)/(SWIR+NIR) built-up index.",
+      "arguments": [
+        "nir",
+        "swir"
+      ],
+      "required": [
+        "swir",
+        "nir"
+      ],
+      "requires": [
+        "rasterio"
+      ],
+      "network": false,
+      "expensive": false,
+      "input_type": "raster",
+      "output_type": "raster",
+      "units": "index_-1..1",
+      "schema": {
+        "properties": {
+          "swir": {
+            "description": "SWIR band reference or path."
+          },
+          "nir": {
+            "description": "NIR band reference or path."
+          }
+        }
+      }
+    },
+    {
+      "name": "calculate_ndvi",
+      "category": "sensing",
+      "description": "(NIR\u2212Red)/(NIR+Red) from two band rasters.",
+      "arguments": [
+        "nir",
+        "red"
+      ],
+      "required": [
+        "nir",
+        "red"
+      ],
+      "requires": [
+        "rasterio"
+      ],
+      "network": false,
+      "expensive": false,
+      "input_type": "raster",
+      "output_type": "raster",
+      "units": "index_-1..1",
+      "schema": {
+        "properties": {
+          "nir": {
+            "description": "NIR band raster reference or path."
+          },
+          "red": {
+            "description": "Red band raster reference or path."
+          }
+        }
+      }
+    },
+    {
+      "name": "calculate_ndwi",
+      "category": "sensing",
+      "description": "McFeeters (Green\u2212NIR)/(Green+NIR).",
+      "arguments": [
+        "green",
+        "nir"
+      ],
+      "required": [
+        "nir",
+        "green"
+      ],
+      "requires": [
+        "rasterio"
+      ],
+      "network": false,
+      "expensive": false,
+      "input_type": "raster",
+      "output_type": "raster",
+      "units": "index_-1..1",
+      "schema": {
+        "properties": {
+          "nir": {
+            "description": "NIR band reference or path."
+          },
+          "green": {
+            "description": "Green band reference or path."
+          }
+        }
+      }
+    },
+    {
+      "name": "calculate_percentiles",
+      "category": "analysis",
+      "description": "Quantile cut points.",
+      "arguments": [
+        "field",
+        "input",
+        "percentiles"
+      ],
+      "required": [
+        "input",
+        "field"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "features-or-table",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference (features or table)."
+          },
+          "field": {
+            "type": "string"
+          },
+          "percentiles": {
+            "description": "Array within 0..100 (default quartiles)."
+          }
+        }
+      }
+    },
+    {
+      "name": "calculate_std",
+      "category": "analysis",
+      "description": "Standard deviation + variance.",
+      "arguments": [
+        "field",
+        "input"
+      ],
+      "required": [
+        "input",
+        "field"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "features-or-table",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference (features or table)."
+          },
+          "field": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "climate_statistics",
+      "category": "environmental",
+      "description": "Aggregate a daily_weather table.",
+      "arguments": [
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "table",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "daily_weather table reference."
+          }
+        }
+      }
+    },
+    {
+      "name": "clip",
+      "category": "geometry",
+      "description": "Input features cut to a clip area.",
+      "arguments": [
+        "clip_area",
+        "input"
+      ],
+      "required": [
+        "input",
+        "clip_area"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference to clip."
+          },
+          "clip_area": {
+            "description": "Result reference with clip geometries."
+          }
+        }
+      }
+    },
+    {
+      "name": "clip_raster",
+      "category": "raster",
+      "description": "Clip to a bbox (CRS-checked).",
+      "arguments": [
+        "bbox",
+        "input"
+      ],
+      "required": [
+        "input",
+        "bbox"
+      ],
+      "requires": [
+        "rasterio"
+      ],
+      "network": false,
+      "expensive": false,
+      "input_type": "raster",
+      "output_type": "raster",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Raster result reference or path."
+          },
+          "bbox": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "contains",
+      "category": "geometry",
+      "description": "A features containing B (no boundary-only contact).",
+      "arguments": [
+        "input_a",
+        "input_b"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference filtered."
+          },
+          "input_b": {
+            "description": "Result reference compared against."
+          }
+        }
+      }
+    },
+    {
+      "name": "convex_hull",
+      "category": "geometry",
+      "description": "Smallest convex polygon per feature.",
+      "arguments": [
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          }
+        }
+      }
+    },
+    {
+      "name": "count_features",
+      "category": "analysis",
+      "description": "Feature count + geometry-type breakdown.",
+      "arguments": [
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          }
+        }
+      }
+    },
+    {
+      "name": "covers",
+      "category": "geometry",
+      "description": "A features covering B (boundary contact allowed).",
+      "arguments": [
+        "input_a",
+        "input_b"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference filtered."
+          },
+          "input_b": {
+            "description": "Result reference compared against."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_bbox",
+      "category": "geometry",
+      "description": "Bounding-box polygon.",
+      "arguments": [
+        "east",
+        "north",
+        "properties",
+        "south",
+        "west"
+      ],
+      "required": [
+        "west",
+        "south",
+        "east",
+        "north"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "coordinates",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "west": {
+            "type": "number"
+          },
+          "south": {
+            "type": "number"
+          },
+          "east": {
+            "type": "number"
+          },
+          "north": {
+            "type": "number"
+          },
+          "properties": {
+            "description": "Optional attribute object."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_choropleth",
+      "category": "visualization",
+      "description": "Attach quantile/equal-interval breaks spec.",
+      "arguments": [
+        "attribute",
+        "classes",
+        "input",
+        "scheme"
+      ],
+      "required": [
+        "input",
+        "attribute"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "attribute": {
+            "type": "string",
+            "description": "Numeric field."
+          },
+          "classes": {
+            "type": "integer",
+            "description": "2..9 (default 5)."
+          },
+          "scheme": {
+            "type": "string",
+            "description": "quantiles|equal_interval."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_hex_grid",
+      "category": "geometry",
+      "description": "Metre-sized hexagonal tessellation over a bbox.",
+      "arguments": [
+        "bbox",
+        "size_meters"
+      ],
+      "required": [
+        "bbox"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "bbox",
+      "output_type": "FeatureCollection",
+      "units": "m",
+      "schema": {
+        "properties": {
+          "bbox": {
+            "type": "string",
+            "description": "'west,south,east,north' (EPSG:4326)."
+          },
+          "size_meters": {
+            "type": "number",
+            "description": "Hex size in metres (default 1000)."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_line",
+      "category": "geometry",
+      "description": "LineString from [lon, lat] positions.",
+      "arguments": [
+        "coordinates",
+        "properties"
+      ],
+      "required": [
+        "coordinates"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "coordinates",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "coordinates": {
+            "description": "Array of [lon, lat], at least 2."
+          },
+          "properties": {
+            "description": "Optional attribute object."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_map_result",
+      "category": "visualization",
+      "description": "Assemble result references into named map layers.",
+      "arguments": [
+        "layers",
+        "title"
+      ],
+      "required": [
+        "layers"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "map_layers",
+      "units": "",
+      "schema": {
+        "properties": {
+          "layers": {
+            "description": "Array of result references, e.g. [\"$a\", \"$b\"]."
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_point",
+      "category": "geometry",
+      "description": "Point feature from lon/lat.",
+      "arguments": [
+        "lat",
+        "lon",
+        "properties"
+      ],
+      "required": [
+        "lon",
+        "lat"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "coordinates",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "lon": {
+            "type": "number"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "properties": {
+            "description": "Optional attribute object."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_polygon",
+      "category": "geometry",
+      "description": "Polygon from linear rings.",
+      "arguments": [
+        "properties",
+        "rings"
+      ],
+      "required": [
+        "rings"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "coordinates",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "rings": {
+            "description": "Array of linear rings (outer + holes)."
+          },
+          "properties": {
+            "description": "Optional attribute object."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_voronoi",
+      "category": "geometry",
+      "description": "Voronoi regions of point features.",
+      "arguments": [
+        "bbox",
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference to point features."
+          },
+          "bbox": {
+            "type": "string",
+            "description": "Optional clip 'west,south,east,north'."
+          }
+        }
+      }
+    },
+    {
+      "name": "current_weather",
+      "category": "environmental",
+      "description": "Current temp/humidity/precip/wind (Open-Meteo, no key).",
+      "arguments": [
+        "lat",
+        "lon",
+        "temperature_unit"
+      ],
+      "required": [
+        "lat",
+        "lon"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "coordinates",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "lat": {
+            "type": "number"
+          },
+          "lon": {
+            "type": "number"
+          },
+          "temperature_unit": {
+            "type": "string",
+            "description": "celsius (default) or fahrenheit."
+          }
+        }
+      }
+    },
+    {
+      "name": "daily_weather",
+      "category": "environmental",
+      "description": "Daily max/min temp, precip, wind for a date range.",
+      "arguments": [
+        "end",
+        "lat",
+        "lon",
+        "start",
+        "temperature_unit"
+      ],
+      "required": [
+        "lat",
+        "lon",
+        "start",
+        "end"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "coordinates",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "lat": {
+            "type": "number"
+          },
+          "lon": {
+            "type": "number"
+          },
+          "start": {
+            "type": "string",
+            "description": "ISO date."
+          },
+          "end": {
+            "type": "string",
+            "description": "ISO date."
+          },
+          "temperature_unit": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "describe_dataset",
+      "category": "utility",
+      "description": "Live metadata for one dataset.",
+      "arguments": [
+        "dataset"
+      ],
+      "required": [
+        "dataset"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "dataset",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "dataset": {
+            "type": "string",
+            "description": "Semantic dataset name."
+          }
+        }
+      }
+    },
+    {
+      "name": "describe_raster",
+      "category": "raster",
+      "description": "Metadata + per-band statistics.",
+      "arguments": [
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [
+        "rasterio"
+      ],
+      "network": false,
+      "expensive": false,
+      "input_type": "raster",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Raster result reference or path."
+          }
+        }
+      }
+    },
+    {
+      "name": "detect_temporal_trend",
+      "category": "analysis",
+      "description": "Least-squares slope/day, R\u00b2, direction.",
+      "arguments": [
+        "field",
+        "input",
+        "time_field"
+      ],
+      "required": [
+        "input",
+        "field"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "features-or-table",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "field": {
+            "type": "string"
+          },
+          "time_field": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "difference",
+      "category": "geometry",
+      "description": "Parts of A not covered by B.",
+      "arguments": [
+        "input_a",
+        "input_b"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference kept where B is absent."
+          },
+          "input_b": {
+            "description": "Result reference subtracted."
+          }
+        }
+      }
+    },
+    {
+      "name": "discover_tools",
+      "category": "discovery",
+      "description": "List tools, optionally by category.",
+      "arguments": [
+        "category"
+      ],
+      "required": [],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Optional category filter."
+          }
+        }
+      }
+    },
+    {
+      "name": "disjoint",
+      "category": "geometry",
+      "description": "A features sharing no point with B.",
+      "arguments": [
+        "input_a",
+        "input_b"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference filtered."
+          },
+          "input_b": {
+            "description": "Result reference compared against."
+          }
+        }
+      }
+    },
+    {
+      "name": "dissolve",
+      "category": "geometry",
+      "description": "Merge all features, or one per attribute value.",
+      "arguments": [
+        "by_attribute",
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "by_attribute": {
+            "type": "string",
+            "description": "Optional dissolve field."
+          }
+        }
+      }
+    },
+    {
+      "name": "distance",
+      "category": "geometry",
+      "description": "Pairwise A\u00d7B distances in kilometres (metric).",
+      "arguments": [
+        "input_a",
+        "input_b"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "km",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference."
+          },
+          "input_b": {
+            "description": "Result reference."
+          }
+        }
+      }
+    },
+    {
+      "name": "distance_matrix",
+      "category": "geometry",
+      "description": "Full A\u00d7B kilometre matrix table.",
+      "arguments": [
+        "input_a",
+        "input_b"
+      ],
+      "required": [
+        "input_a"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "km",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference (rows)."
+          },
+          "input_b": {
+            "description": "Result reference (columns); defaults to A."
+          }
+        }
+      }
+    },
+    {
+      "name": "download_dataset",
+      "category": "data",
+      "description": "Page a whole ArcGIS layer in (capped, flagged).",
+      "arguments": [
+        "bbox",
+        "dataset",
+        "max_features"
+      ],
+      "required": [
+        "dataset"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": true,
+      "input_type": "dataset",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "dataset": {
+            "type": "string"
+          },
+          "max_features": {
+            "type": "integer",
+            "description": "Cap (default 5000)."
+          },
+          "bbox": {
+            "type": "string",
+            "description": "Optional spatial filter."
+          }
+        }
+      }
+    },
+    {
+      "name": "download_street_network",
+      "category": "network",
+      "description": "OSM roads for a bbox, built into a network.",
+      "arguments": [
+        "bbox",
+        "max_features",
+        "road_class"
+      ],
+      "required": [
+        "bbox"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": true,
+      "input_type": "bbox",
+      "output_type": "network",
+      "units": "",
+      "schema": {
+        "properties": {
+          "bbox": {
+            "type": "string"
+          },
+          "road_class": {
+            "type": "string",
+            "description": "Highway class or 'all'."
+          },
+          "max_features": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "export_csv",
+      "category": "visualization",
+      "description": "Serialise a table (or properties) to CSV payload.",
+      "arguments": [
+        "filename",
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "download",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference (table or features)."
+          },
+          "filename": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "export_geojson",
+      "category": "visualization",
+      "description": "Serialise features to a download payload.",
+      "arguments": [
+        "filename",
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "download",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "filename": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "filter_by_date",
+      "category": "analysis",
+      "description": "Rows on one calendar day.",
+      "arguments": [
+        "date",
+        "input",
+        "time_field"
+      ],
+      "required": [
+        "input",
+        "date"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "features-or-table",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference (features or table)."
+          },
+          "date": {
+            "type": "string",
+            "description": "ISO calendar day."
+          },
+          "time_field": {
+            "type": "string",
+            "description": "Datetime column (auto-detected)."
+          }
+        }
+      }
+    },
+    {
+      "name": "filter_by_time_range",
+      "category": "analysis",
+      "description": "Rows within [start, end].",
+      "arguments": [
+        "end",
+        "input",
+        "start",
+        "time_field"
+      ],
+      "required": [
+        "input",
+        "start",
+        "end"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "features-or-table",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "time_field": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "filter_features",
+      "category": "data",
+      "description": "Attribute filter (FIELD = value, >, LIKE, AND) on a result.",
+      "arguments": [
+        "input",
+        "where"
+      ],
+      "required": [
+        "input",
+        "where"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "where": {
+            "type": "string",
+            "description": "e.g. \"STATUS = 'Active' AND OBJECTID > 3\"."
+          }
+        }
+      }
+    },
+    {
+      "name": "find_containing_region",
+      "category": "data",
+      "description": "Admin hierarchy containing a point.",
+      "arguments": [
+        "lat",
+        "lon"
+      ],
+      "required": [
+        "lat",
+        "lon"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "coordinates",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "lat": {
+            "type": "number"
+          },
+          "lon": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "find_related_publications",
+      "category": "knowledge",
+      "description": "Publications sharing terms with a DOI.",
+      "arguments": [
+        "identifier",
+        "max_hits"
+      ],
+      "required": [
+        "identifier"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "text",
+      "output_type": "knowledge",
+      "units": "",
+      "schema": {
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "Seed DOI, e.g. 'doi:...'."
+          },
+          "max_hits": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "gbif_match_species",
+      "category": "environmental",
+      "description": "Match a name to a GBIF taxon key.",
+      "arguments": [
+        "name"
+      ],
+      "required": [
+        "name"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "text",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Scientific or common name."
+          }
+        }
+      }
+    },
+    {
+      "name": "gbif_occurrences",
+      "category": "environmental",
+      "description": "GBIF occurrence points for a taxon, optional bbox.",
+      "arguments": [
+        "basis",
+        "bbox",
+        "limit",
+        "taxon"
+      ],
+      "required": [
+        "taxon"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "taxon": {
+            "type": "string",
+            "description": "Name or GBIF usageKey."
+          },
+          "bbox": {
+            "type": "string",
+            "description": "Optional spatial filter."
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "basis": {
+            "type": "string",
+            "description": "Optional basisOfRecord filter."
+          }
+        }
+      }
+    },
+    {
+      "name": "geocode",
+      "category": "data",
+      "description": "Forward-geocode a place/address to points (Nominatim).",
+      "arguments": [
+        "limit",
+        "query"
+      ],
+      "required": [
+        "query"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "text",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Place or address."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results (default 5)."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_admin_boundary",
+      "category": "data",
+      "description": "Boundary polygon for a named country/state/county.",
+      "arguments": [
+        "admin_level",
+        "place"
+      ],
+      "required": [
+        "place"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "text",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "place": {
+            "type": "string",
+            "description": "e.g. 'Lucas County, Ohio'."
+          },
+          "admin_level": {
+            "type": "string",
+            "description": "Optional preference, e.g. 'county'."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_admin_hierarchy",
+      "category": "data",
+      "description": "Enclosing admin levels for a place as a table.",
+      "arguments": [
+        "place"
+      ],
+      "required": [
+        "place"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "text",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "place": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_crs",
+      "category": "geometry",
+      "description": "Report a result's declared CRS.",
+      "arguments": [
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference or collection."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_dataset_extent",
+      "category": "data",
+      "description": "Spatial (and Maumee temporal) extent of a dataset.",
+      "arguments": [
+        "dataset"
+      ],
+      "required": [
+        "dataset"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "dataset",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "dataset": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_dataset_provenance",
+      "category": "knowledge",
+      "description": "Origin/citation/coverage for a dataset.",
+      "arguments": [
+        "dataset"
+      ],
+      "required": [
+        "dataset"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "dataset",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "dataset": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_dataset_schema",
+      "category": "data",
+      "description": "Field list for a dataset (live ArcGIS discovery).",
+      "arguments": [
+        "dataset"
+      ],
+      "required": [
+        "dataset"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "dataset",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "dataset": {
+            "type": "string",
+            "description": "Semantic dataset name."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_tool_metadata",
+      "category": "discovery",
+      "description": "Full registry record for one tool.",
+      "arguments": [
+        "name"
+      ],
+      "required": [
+        "name"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "text",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Tool name."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_utm_zone",
+      "category": "geometry",
+      "description": "UTM zone + EPSG for lon/lat.",
+      "arguments": [
+        "lat",
+        "lon"
+      ],
+      "required": [
+        "lon",
+        "lat"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "coordinates",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "lon": {
+            "type": "number"
+          },
+          "lat": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "getis_ord",
+      "category": "analysis",
+      "description": "Getis-Ord G* z-score per feature.",
+      "arguments": [
+        "field",
+        "input"
+      ],
+      "required": [
+        "input",
+        "field"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "field": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "hotspot_analysis",
+      "category": "analysis",
+      "description": "Hotspot/coldspot classification from G*.",
+      "arguments": [
+        "field",
+        "input",
+        "threshold"
+      ],
+      "required": [
+        "input",
+        "field"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "field": {
+            "type": "string"
+          },
+          "threshold": {
+            "type": "number",
+            "description": "z threshold (default 1.96)."
+          }
+        }
+      }
+    },
+    {
+      "name": "intersect",
+      "category": "gis",
+      "description": "Features of result A intersecting result B.",
+      "arguments": [
+        "input_a",
+        "input_b"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference for set A."
+          },
+          "input_b": {
+            "description": "Result reference for set B."
+          }
+        }
+      }
+    },
+    {
+      "name": "join_by_nearest",
+      "category": "analysis",
+      "description": "Attach k nearest B attributes + distance km.",
+      "arguments": [
+        "input_a",
+        "input_b",
+        "k",
+        "suffix"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "km",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference."
+          },
+          "input_b": {
+            "description": "Result reference."
+          },
+          "k": {
+            "type": "integer",
+            "description": "Neighbours per feature (default 1)."
+          },
+          "suffix": {
+            "type": "string",
+            "description": "Default '_nearest'."
+          }
+        }
+      }
+    },
+    {
+      "name": "kernel_density",
+      "category": "analysis",
+      "description": "Gaussian KDE grid cells (per km\u00b2) over points.",
+      "arguments": [
+        "bandwidth_meters",
+        "cell_meters",
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "per_km2",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference with points."
+          },
+          "cell_meters": {
+            "type": "number"
+          },
+          "bandwidth_meters": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_datasets",
+      "category": "utility",
+      "description": "List registered datasets + availability.",
+      "arguments": [],
+      "required": [],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {}
+      }
+    },
+    {
+      "name": "load_raster",
+      "category": "raster",
+      "description": "Open a GeoTIFF into a chainable raster descriptor.",
+      "arguments": [
+        "path"
+      ],
+      "required": [
+        "path"
+      ],
+      "requires": [
+        "rasterio"
+      ],
+      "network": false,
+      "expensive": false,
+      "input_type": "path",
+      "output_type": "raster",
+      "units": "",
+      "schema": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "GeoTIFF file path."
+          }
+        }
+      }
+    },
+    {
+      "name": "local_moran",
+      "category": "analysis",
+      "description": "LISA quadrants (HH/LL/HL/LH) per feature.",
+      "arguments": [
+        "field",
+        "input"
+      ],
+      "required": [
+        "input",
+        "field"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "field": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "moran_i",
+      "category": "analysis",
+      "description": "Global Moran's I with z-score, p-value, interpretation.",
+      "arguments": [
+        "field",
+        "input"
+      ],
+      "required": [
+        "input",
+        "field"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference (polygon/point features)."
+          },
+          "field": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "nearest",
+      "category": "gis",
+      "description": "k nearest B features per A feature (km).",
+      "arguments": [
+        "input_a",
+        "input_b",
+        "k"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "km",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference for query features."
+          },
+          "input_b": {
+            "description": "Result reference for candidate features."
+          },
+          "k": {
+            "type": "integer",
+            "description": "Neighbours per feature (default 1)."
+          }
+        }
+      }
+    },
+    {
+      "name": "overpass_query",
+      "category": "data",
+      "description": "Run raw Overpass QL (advanced).",
+      "arguments": [
+        "ql",
+        "timeout"
+      ],
+      "required": [
+        "ql"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": true,
+      "input_type": "mixed",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "ql": {
+            "type": "string",
+            "description": "Full Overpass QL (advanced)."
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Seconds (default 60)."
+          }
+        }
+      }
+    },
+    {
+      "name": "percentage_by_area",
+      "category": "analysis",
+      "description": "Share (%) of each A polygon covered by B.",
+      "arguments": [
+        "input_a",
+        "input_b"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "percent",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference (areas)."
+          },
+          "input_b": {
+            "description": "Result reference (coverage)."
+          }
+        }
+      }
+    },
+    {
+      "name": "protected_area_query",
+      "category": "environmental",
+      "description": "OSM protected areas + nature reserves by bbox.",
+      "arguments": [
+        "bbox",
+        "designation",
+        "max_features"
+      ],
+      "required": [
+        "bbox"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "bbox": {
+            "type": "string"
+          },
+          "designation": {
+            "type": "string",
+            "description": "Optional substring filter."
+          },
+          "max_features": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "query_arcgis",
+      "category": "data",
+      "description": "Retrieve GeoJSON features from a registered ArcGIS FeatureServer dataset (semantic name).",
+      "arguments": [
+        "bbox",
+        "dataset",
+        "max_features",
+        "out_fields",
+        "return_geometry",
+        "where"
+      ],
+      "required": [
+        "dataset"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "dataset",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "dataset": {
+            "type": "string",
+            "description": "Semantic dataset name: 'septic_systems' or 'floodplains'."
+          },
+          "where": {
+            "type": "string",
+            "description": "Optional SQL where clause, e.g. 'STATUS = 1'. Default '1=1'."
+          },
+          "out_fields": {
+            "type": "string",
+            "description": "Comma-separated fields or '*' (default)."
+          },
+          "return_geometry": {
+            "type": "boolean",
+            "description": "Return geometries (default true)."
+          },
+          "max_features": {
+            "type": "integer",
+            "description": "Max features to return (default 1000, cap 2000)."
+          },
+          "bbox": {
+            "type": "string",
+            "description": "Optional 'west,south,east,north' (EPSG:4326) spatial filter."
+          }
+        }
+      }
+    },
+    {
+      "name": "query_maumee",
+      "category": "data",
+      "description": "Query the local NCWQR Maumee XLSX: records, summaries, extremes, daily means, or schema. Tabular only.",
+      "arguments": [
+        "end_date",
+        "max_rows",
+        "operation",
+        "parameter",
+        "start_date",
+        "top_n"
+      ],
+      "required": [],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "dataset",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "parameter": {
+            "type": "string",
+            "description": "Parameter code: FLOW (flow), TSS (total suspended solids), TP (total phosphorus), SRP (soluble/dissolved reactive phosphorus), NO23 (nitrite+nitrate/nitrogen), TKN (Kjeldahl nitrogen), CL (chloride), SO4 (sulfate), SI (silica), COND (conductivity). USE THIS TOOL for any question about measured values, maxima/minima, dates of records, trends, or summaries in the Maumee record \u2014 do NOT use the knowledge base for these. Omit for all value columns."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "ISO date lower bound."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "ISO date upper bound."
+          },
+          "operation": {
+            "type": "string",
+            "description": "'records' (recent rows), 'summary' (stats incl. min/max dates), 'extremes' (top-N highest records with datetimes + the lowest \u2014 use for 'highest', 'lowest', 'maximum', 'when was X highest/lowest', 'peak', 'record' questions), 'daily' (daily means), 'schema'."
+          },
+          "max_rows": {
+            "type": "integer",
+            "description": "Max rows returned (default 200, cap 1000)."
+          },
+          "top_n": {
+            "type": "integer",
+            "description": "Top-N highest records for 'extremes' (default 3, cap 50)."
+          }
+        }
+      }
+    },
+    {
+      "name": "query_osm_buildings",
+      "category": "data",
+      "description": "OpenStreetMap building footprints + bbox.",
+      "arguments": [
+        "bbox",
+        "max_features",
+        "want_geometry"
+      ],
+      "required": [
+        "bbox"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "bbox": {
+            "type": "string"
+          },
+          "max_features": {
+            "type": "integer"
+          },
+          "want_geometry": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "query_osm_landuse",
+      "category": "data",
+      "description": "OpenStreetMap landuse polygons + bbox.",
+      "arguments": [
+        "bbox",
+        "landuse",
+        "max_features",
+        "want_geometry"
+      ],
+      "required": [
+        "bbox"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "bbox": {
+            "type": "string"
+          },
+          "landuse": {
+            "type": "string"
+          },
+          "max_features": {
+            "type": "integer"
+          },
+          "want_geometry": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "query_osm_pois",
+      "category": "data",
+      "description": "OpenStreetMap points of interest by category + bbox.",
+      "arguments": [
+        "bbox",
+        "category",
+        "max_features",
+        "want_geometry"
+      ],
+      "required": [
+        "bbox"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "bbox": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "max_features": {
+            "type": "integer"
+          },
+          "want_geometry": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "query_osm_roads",
+      "category": "data",
+      "description": "OpenStreetMap roads by class + bbox.",
+      "arguments": [
+        "bbox",
+        "max_features",
+        "road_class",
+        "want_geometry"
+      ],
+      "required": [
+        "bbox"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "bbox": {
+            "type": "string"
+          },
+          "road_class": {
+            "type": "string"
+          },
+          "max_features": {
+            "type": "integer"
+          },
+          "want_geometry": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "query_osm_water",
+      "category": "data",
+      "description": "OpenStreetMap water bodies + bbox.",
+      "arguments": [
+        "bbox",
+        "max_features",
+        "want_geometry"
+      ],
+      "required": [
+        "bbox"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "bbox": {
+            "type": "string"
+          },
+          "max_features": {
+            "type": "integer"
+          },
+          "want_geometry": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "query_user_dataset",
+      "category": "data",
+      "description": "Retrieve features or rows from a user-uploaded dataset by registered name (see list_datasets).",
+      "arguments": [
+        "bbox",
+        "dataset",
+        "max_features"
+      ],
+      "required": [
+        "dataset"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "dataset",
+      "output_type": "mixed",
+      "units": "",
+      "schema": {
+        "properties": {
+          "dataset": {
+            "type": "string",
+            "description": "Registered name of an uploaded dataset (see list_datasets). Use for questions about user-provided files."
+          },
+          "max_features": {
+            "type": "integer",
+            "description": "Max features/rows returned (default 500, cap 1000)."
+          },
+          "bbox": {
+            "type": "string",
+            "description": "Optional 'west,south,east,north' (EPSG:4326) spatial filter."
+          }
+        }
+      }
+    },
+    {
+      "name": "query_wfs",
+      "category": "data",
+      "description": "WFS GetFeature as GeoJSON from any service URL.",
+      "arguments": [
+        "bbox",
+        "max_features",
+        "typename",
+        "url"
+      ],
+      "required": [
+        "url",
+        "typename"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": true,
+      "input_type": "dataset",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "WFS endpoint."
+          },
+          "typename": {
+            "type": "string",
+            "description": "Feature type name."
+          },
+          "max_features": {
+            "type": "integer"
+          },
+          "bbox": {
+            "type": "string",
+            "description": "Optional filter."
+          }
+        }
+      }
+    },
+    {
+      "name": "raster_calculator",
+      "category": "raster",
+      "description": "AST-validated band math (no raw eval).",
+      "arguments": [
+        "expression",
+        "input_a",
+        "input_b"
+      ],
+      "required": [
+        "input_a",
+        "expression"
+      ],
+      "requires": [
+        "rasterio"
+      ],
+      "network": false,
+      "expensive": false,
+      "input_type": "raster",
+      "output_type": "raster",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Raster reference or path (band a)."
+          },
+          "input_b": {
+            "description": "Optional second raster (band b)."
+          },
+          "expression": {
+            "type": "string",
+            "description": "e.g. '(a - b) / (a + b)'. AST-validated."
+          }
+        }
+      }
+    },
+    {
+      "name": "raster_reclassify",
+      "category": "raster",
+      "description": "Reclassify by 'lo-hi:value' ranges.",
+      "arguments": [
+        "input",
+        "mapping"
+      ],
+      "required": [
+        "input",
+        "mapping"
+      ],
+      "requires": [
+        "rasterio"
+      ],
+      "network": false,
+      "expensive": false,
+      "input_type": "raster",
+      "output_type": "raster",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Raster reference or path."
+          },
+          "mapping": {
+            "type": "string",
+            "description": "e.g. '0-10:1;10-*:2'."
+          }
+        }
+      }
+    },
+    {
+      "name": "raster_slope",
+      "category": "raster",
+      "description": "Horn's slope in degrees or percent.",
+      "arguments": [
+        "input",
+        "units"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [
+        "rasterio"
+      ],
+      "network": false,
+      "expensive": false,
+      "input_type": "raster",
+      "output_type": "raster",
+      "units": "degrees|percent",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Elevation raster reference or path."
+          },
+          "units": {
+            "type": "string",
+            "description": "'degrees' (default) or 'percent'."
+          }
+        }
+      }
+    },
+    {
+      "name": "raster_statistics",
+      "category": "raster",
+      "description": "Per-band count/min/max/mean/std table.",
+      "arguments": [
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [
+        "rasterio"
+      ],
+      "network": false,
+      "expensive": false,
+      "input_type": "raster",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Raster result reference or path."
+          }
+        }
+      }
+    },
+    {
+      "name": "relate",
+      "category": "geometry",
+      "description": "DE-9IM matrix per A feature, optional pattern filter.",
+      "arguments": [
+        "input_a",
+        "input_b",
+        "pattern"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "mixed",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference."
+          },
+          "input_b": {
+            "description": "Result reference."
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Optional 9-char DE-9IM pattern, '*' wildcards."
+          }
+        }
+      }
+    },
+    {
+      "name": "resample_raster",
+      "category": "raster",
+      "description": "Resample by scale factor + method.",
+      "arguments": [
+        "input",
+        "method",
+        "scale_factor"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [
+        "rasterio"
+      ],
+      "network": false,
+      "expensive": false,
+      "input_type": "raster",
+      "output_type": "raster",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Raster result reference or path."
+          },
+          "scale_factor": {
+            "type": "number",
+            "description": "e.g. 0.5 halves."
+          },
+          "method": {
+            "type": "string",
+            "description": "nearest|bilinear|cubic|average."
+          }
+        }
+      }
+    },
+    {
+      "name": "resolve_location",
+      "category": "data",
+      "description": "Place name or 'lat, lon' pair to located features.",
+      "arguments": [
+        "text"
+      ],
+      "required": [
+        "text"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "text",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "'lat, lon' pair or place name."
+          }
+        }
+      }
+    },
+    {
+      "name": "reverse_geocode",
+      "category": "data",
+      "description": "Nearest address + admin hierarchy for coordinates.",
+      "arguments": [
+        "lat",
+        "lon"
+      ],
+      "required": [
+        "lat",
+        "lon"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "coordinates",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "lat": {
+            "type": "number"
+          },
+          "lon": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "sample_features",
+      "category": "data",
+      "description": "Deterministic seeded random sample of features.",
+      "arguments": [
+        "input",
+        "n",
+        "seed"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "n": {
+            "type": "integer",
+            "description": "Sample size (default 10)."
+          },
+          "seed": {
+            "type": "integer",
+            "description": "Deterministic seed (default 42)."
+          }
+        }
+      }
+    },
+    {
+      "name": "search_datasets",
+      "category": "data",
+      "description": "Find registered datasets by keywords.",
+      "arguments": [
+        "query"
+      ],
+      "required": [
+        "query"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Keywords, e.g. 'flood water quality'."
+          }
+        }
+      }
+    },
+    {
+      "name": "search_knowledge_base",
+      "category": "knowledge",
+      "description": "Keyword search over the curated NCWQR knowledge index. Returns passages with sources.",
+      "arguments": [
+        "max_hits",
+        "query"
+      ],
+      "required": [
+        "query"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "text",
+      "output_type": "knowledge",
+      "units": "",
+      "schema": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Natural-language knowledge question, e.g. phosphorus implications."
+          },
+          "max_hits": {
+            "type": "integer",
+            "description": "Max passages to return (default 5)."
+          }
+        }
+      }
+    },
+    {
+      "name": "search_publications",
+      "category": "knowledge",
+      "description": "Filter indexed publications by author/year/venue/DOI.",
+      "arguments": [
+        "author",
+        "doi",
+        "max_hits",
+        "venue",
+        "year"
+      ],
+      "required": [],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "text",
+      "output_type": "knowledge",
+      "units": "",
+      "schema": {
+        "properties": {
+          "author": {
+            "type": "string",
+            "description": "Author substring."
+          },
+          "year": {
+            "type": "string",
+            "description": "e.g. '2015'."
+          },
+          "venue": {
+            "type": "string",
+            "description": "Journal/report substring."
+          },
+          "doi": {
+            "type": "string",
+            "description": "DOI substring."
+          },
+          "max_hits": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "search_tools",
+      "category": "discovery",
+      "description": "Keyword search over the tool catalogue.",
+      "arguments": [
+        "max_hits",
+        "query"
+      ],
+      "required": [
+        "query"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "text",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "e.g. 'buffer flood'."
+          },
+          "max_hits": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "service_area",
+      "category": "network",
+      "description": "Reachable-nodes convex hull for a time budget.",
+      "arguments": [
+        "lat",
+        "lon",
+        "minutes",
+        "network",
+        "speed_kmh"
+      ],
+      "required": [
+        "network",
+        "lon",
+        "lat",
+        "minutes"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "network",
+      "output_type": "FeatureCollection",
+      "units": "minutes",
+      "schema": {
+        "properties": {
+          "network": {
+            "description": "Result reference to a built network."
+          },
+          "lon": {
+            "type": "number"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "minutes": {
+            "type": "number"
+          },
+          "speed_kmh": {
+            "type": "number",
+            "description": "Default 40."
+          }
+        }
+      }
+    },
+    {
+      "name": "set_crs",
+      "category": "geometry",
+      "description": "Assign (not transform) a CRS label.",
+      "arguments": [
+        "crs",
+        "input"
+      ],
+      "required": [
+        "input",
+        "crs"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference or collection."
+          },
+          "crs": {
+            "type": "string",
+            "description": "CRS to assign, e.g. 'EPSG:4326'."
+          }
+        }
+      }
+    },
+    {
+      "name": "shortest_path",
+      "category": "network",
+      "description": "Dijkstra path between lon/lat points as a line.",
+      "arguments": [
+        "from_lat",
+        "from_lon",
+        "network",
+        "to_lat",
+        "to_lon"
+      ],
+      "required": [
+        "network",
+        "from_lon",
+        "from_lat",
+        "to_lon",
+        "to_lat"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "network",
+      "output_type": "FeatureCollection",
+      "units": "m",
+      "schema": {
+        "properties": {
+          "network": {
+            "description": "Result reference to a built network."
+          },
+          "from_lon": {
+            "type": "number"
+          },
+          "from_lat": {
+            "type": "number"
+          },
+          "to_lon": {
+            "type": "number"
+          },
+          "to_lat": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "simplify",
+      "category": "geometry",
+      "description": "Metric Douglas-Peucker simplification with vertex report.",
+      "arguments": [
+        "input",
+        "tolerance_meters"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "m",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "tolerance_meters": {
+            "type": "number",
+            "description": "Default 10."
+          }
+        }
+      }
+    },
+    {
+      "name": "spatial_filter",
+      "category": "geometry",
+      "description": "Filter A by any named predicate (plan-time choice).",
+      "arguments": [
+        "input_a",
+        "input_b",
+        "predicate"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference filtered."
+          },
+          "input_b": {
+            "description": "Result reference compared against."
+          },
+          "predicate": {
+            "type": "string",
+            "description": "One of: intersects, within, contains, crosses, touches, overlaps, disjoint, equals, covers, covered_by."
+          }
+        }
+      }
+    },
+    {
+      "name": "spatial_join",
+      "category": "analysis",
+      "description": "Attach B attributes to A by predicate.",
+      "arguments": [
+        "input_a",
+        "input_b",
+        "predicate",
+        "suffix"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference (rows kept)."
+          },
+          "input_b": {
+            "description": "Result reference (attributes attached)."
+          },
+          "predicate": {
+            "type": "string",
+            "description": "Default 'intersects'."
+          },
+          "suffix": {
+            "type": "string",
+            "description": "Rename clashes (default '_b')."
+          }
+        }
+      }
+    },
+    {
+      "name": "species_richness",
+      "category": "environmental",
+      "description": "Distinct taxa + per-taxon counts.",
+      "arguments": [
+        "input",
+        "taxon_field"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Occurrence features reference."
+          },
+          "taxon_field": {
+            "type": "string",
+            "description": "Default 'scientificName'."
+          }
+        }
+      }
+    },
+    {
+      "name": "stac_search",
+      "category": "sensing",
+      "description": "Find Sentinel-2/Landsat scenes with asset URLs (no key).",
+      "arguments": [
+        "bbox",
+        "collection",
+        "end",
+        "max_cloud_cover",
+        "max_items",
+        "start"
+      ],
+      "required": [
+        "bbox",
+        "start",
+        "end"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "bbox": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string",
+            "description": "ISO date."
+          },
+          "end": {
+            "type": "string",
+            "description": "ISO date."
+          },
+          "collection": {
+            "type": "string",
+            "description": "sentinel-2-l2a (default) or landsat-c2-l2."
+          },
+          "max_items": {
+            "type": "integer"
+          },
+          "max_cloud_cover": {
+            "type": "number",
+            "description": "Percent (default 20)."
+          }
+        }
+      }
+    },
+    {
+      "name": "style_layer",
+      "category": "visualization",
+      "description": "Attach hex/weight/opacity/radius style override.",
+      "arguments": [
+        "color",
+        "fill_color",
+        "input",
+        "opacity",
+        "radius",
+        "weight"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "fill_color": {
+            "type": "string",
+            "description": "Hex, e.g. '#d03b3b'."
+          },
+          "color": {
+            "type": "string",
+            "description": "Hex stroke."
+          },
+          "weight": {
+            "type": "number"
+          },
+          "opacity": {
+            "type": "number"
+          },
+          "radius": {
+            "type": "number",
+            "description": "Point radius."
+          }
+        }
+      }
+    },
+    {
+      "name": "summarize_by_attribute",
+      "category": "analysis",
+      "description": "Group statistics per category.",
+      "arguments": [
+        "field",
+        "group_by",
+        "input"
+      ],
+      "required": [
+        "input",
+        "field",
+        "group_by"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "features-or-table",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference (features or table)."
+          },
+          "field": {
+            "type": "string",
+            "description": "Numeric field."
+          },
+          "group_by": {
+            "type": "string",
+            "description": "Category field."
+          }
+        }
+      }
+    },
+    {
+      "name": "symmetric_difference",
+      "category": "geometry",
+      "description": "Areas in exactly one of A / B.",
+      "arguments": [
+        "input_a",
+        "input_b"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference, set A."
+          },
+          "input_b": {
+            "description": "Result reference, set B."
+          }
+        }
+      }
+    },
+    {
+      "name": "temporal_statistics",
+      "category": "analysis",
+      "description": "Stats plus first/last timestamps and span.",
+      "arguments": [
+        "field",
+        "input",
+        "time_field"
+      ],
+      "required": [
+        "input",
+        "field"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "features-or-table",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference."
+          },
+          "field": {
+            "type": "string"
+          },
+          "time_field": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "transfer_attributes",
+      "category": "analysis",
+      "description": "Copy named fields across a spatial match.",
+      "arguments": [
+        "fields",
+        "source",
+        "target"
+      ],
+      "required": [
+        "target",
+        "source",
+        "fields"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "target": {
+            "description": "Result reference receiving fields."
+          },
+          "source": {
+            "description": "Result reference providing fields."
+          },
+          "fields": {
+            "description": "Array of field names to copy."
+          }
+        }
+      }
+    },
+    {
+      "name": "transform_coordinates",
+      "category": "geometry",
+      "description": "Reproject raw [x, y] positions.",
+      "arguments": [
+        "coordinates",
+        "source_crs",
+        "target_crs"
+      ],
+      "required": [
+        "coordinates",
+        "source_crs",
+        "target_crs"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "coordinates",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "coordinates": {
+            "description": "Array of [x, y] positions."
+          },
+          "source_crs": {
+            "type": "string"
+          },
+          "target_crs": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "transform_crs",
+      "category": "geometry",
+      "description": "Reproject a collection to a target CRS.",
+      "arguments": [
+        "input",
+        "target_crs"
+      ],
+      "required": [
+        "input",
+        "target_crs"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference or collection."
+          },
+          "target_crs": {
+            "type": "string",
+            "description": "e.g. 'EPSG:3857'."
+          }
+        }
+      }
+    },
+    {
+      "name": "travel_time",
+      "category": "network",
+      "description": "Minutes over a path at a given speed.",
+      "arguments": [
+        "input",
+        "speed_kmh"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "path",
+      "output_type": "table",
+      "units": "minutes",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "shortest_path result reference."
+          },
+          "speed_kmh": {
+            "type": "number",
+            "description": "Default 40."
+          }
+        }
+      }
+    },
+    {
+      "name": "union",
+      "category": "geometry",
+      "description": "Dissolve all features into non-overlapping parts.",
+      "arguments": [
+        "input"
+      ],
+      "required": [
+        "input"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Result reference to a FeatureCollection."
+          }
+        }
+      }
+    },
+    {
+      "name": "within",
+      "category": "geometry",
+      "description": "A features completely inside B.",
+      "arguments": [
+        "input_a",
+        "input_b"
+      ],
+      "required": [
+        "input_a",
+        "input_b"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference filtered."
+          },
+          "input_b": {
+            "description": "Result reference compared against."
+          }
+        }
+      }
+    },
+    {
+      "name": "within_distance",
+      "category": "geometry",
+      "description": "A features within a metric distance of B.",
+      "arguments": [
+        "distance",
+        "input_a",
+        "input_b",
+        "unit"
+      ],
+      "required": [
+        "input_a",
+        "input_b",
+        "distance"
+      ],
+      "requires": [],
+      "network": false,
+      "expensive": false,
+      "input_type": "FeatureCollection",
+      "output_type": "FeatureCollection",
+      "units": "m",
+      "schema": {
+        "properties": {
+          "input_a": {
+            "description": "Result reference filtered."
+          },
+          "input_b": {
+            "description": "Result reference measured against."
+          },
+          "distance": {
+            "type": "number"
+          },
+          "unit": {
+            "type": "string",
+            "description": "'meters' (default), 'kilometers', 'feet', 'miles'."
+          }
+        }
+      }
+    },
+    {
+      "name": "wms_getmap",
+      "category": "data",
+      "description": "Validate layers via GetCapabilities; return a display GetMap URL.",
+      "arguments": [
+        "bbox",
+        "height",
+        "image_format",
+        "layers",
+        "url",
+        "width"
+      ],
+      "required": [
+        "url",
+        "layers",
+        "bbox"
+      ],
+      "requires": [],
+      "network": true,
+      "expensive": false,
+      "input_type": "dataset",
+      "output_type": "url",
+      "units": "",
+      "schema": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "WMS endpoint."
+          },
+          "layers": {
+            "type": "string",
+            "description": "Comma-separated layer names."
+          },
+          "bbox": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "image_format": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "zonal_statistics",
+      "category": "raster",
+      "description": "Per-zone stats of a raster over polygons.",
+      "arguments": [
+        "band",
+        "input",
+        "operation",
+        "zones"
+      ],
+      "required": [
+        "input",
+        "zones"
+      ],
+      "requires": [
+        "rasterio"
+      ],
+      "network": false,
+      "expensive": false,
+      "input_type": "mixed",
+      "output_type": "table",
+      "units": "",
+      "schema": {
+        "properties": {
+          "input": {
+            "description": "Raster result reference or path."
+          },
+          "zones": {
+            "description": "Polygon result reference."
+          },
+          "operation": {
+            "type": "string",
+            "description": "count|min|max|mean|std|sum."
+          },
+          "band": {
+            "type": "integer",
+            "description": "Default 1."
+          }
+        }
+      }
+    }
+  ]
+}

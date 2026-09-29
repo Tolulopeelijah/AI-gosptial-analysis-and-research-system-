@@ -28,13 +28,14 @@ _RETRYABLE = ("timeout", "timed out", "connection", "503", "504", "rate limit")
 
 
 def _resolve_refs(arguments: Dict[str, Any], store: ResultStore) -> Dict[str, Any]:
-    resolved = {}
-    for key, value in arguments.items():
+    def resolve(value: Any) -> Any:
         if isinstance(value, str) and value.startswith("$"):
-            resolved[key] = store.get(value)
-        else:
-            resolved[key] = value
-    return resolved
+            return store.get(value)
+        if isinstance(value, list):
+            return [resolve(v) for v in value]
+        return value
+
+    return {key: resolve(value) for key, value in arguments.items()}
 
 
 def _is_retryable(error: str) -> bool:
@@ -127,6 +128,7 @@ class Orchestrator:
         sources: List[Dict[str, Any]] = []
         references: List[Dict[str, Any]] = []
         tables: List[Dict[str, Any]] = []
+        downloads: List[Dict[str, Any]] = []
         datasets: List[str] = []
         operations: List[str] = []
         table_notes: List[str] = []
@@ -149,12 +151,31 @@ class Orchestrator:
                     title=step.id.replace("_", " ").title(),
                     geometry_type=out.get("geometry_type", ""),
                     role="primary" if is_final else "context",
+                    style=out.get("style"),
+                    choropleth=out.get("choropleth"),
                 ))
                 if out.get("dataset"):
                     datasets.append(out["dataset"])
                 for s in out.get("sources", []):
                     if s not in sources:
                         sources.append(s)
+            elif isinstance(out, dict) and out.get("type") == "map_layers":
+                for i, named in enumerate(out.get("layers", [])):
+                    layers.append(feature_collection(
+                        named.get("features", []),
+                        dataset=named.get("title", ""),
+                        title=named.get("title", f"layer_{i}"),
+                        role="primary",
+                    ))
+                    datasets.append(named.get("title", ""))
+            elif isinstance(out, dict) and out.get("type") == "download":
+                downloads.append({
+                    "filename": out.get("filename"),
+                    "mime": out.get("mime"),
+                    "count": out.get("count"),
+                    "content": out.get("content"),
+                    "from_step": step.id,
+                })
             elif isinstance(out, dict) and out.get("type") == "table":
                 datasets.append(out.get("dataset", step.tool))
                 note = (
@@ -208,7 +229,7 @@ class Orchestrator:
 
         # Final GIS layer = output of the last FeatureCollection-producing step.
         primary_count = layers[-1]["metadata"]["count"] if layers else None
-        status = "completed" if not fatal or layers or table_notes else "failed"
+        status = "completed" if not fatal or layers or table_notes or downloads else "failed"
         explanation = self._explain(plan, layers, table_notes, sources, fatal)
         if mocked:
             explanation += (
@@ -234,6 +255,7 @@ class Orchestrator:
             sources=sources or None,
             references=references or None,
             tables=tables or None,
+            downloads=downloads or None,
             execution={"plan": {"goal": plan.goal,
                                 "steps": [s.model_dump() for s in plan.steps]},
                        "selected_tools": sorted(set(operations)),

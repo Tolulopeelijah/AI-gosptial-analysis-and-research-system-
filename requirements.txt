@@ -1,11 +1,17 @@
+# Core: agent, data access, geometry, server, tests.
 openai>=1.0
 shapely>=2.0
 pyproj>=3.6
 pandas>=2.0
+numpy>=1.26
 openpyxl>=3.1
 requests>=2.31
 Flask>=3.0
 python-dotenv>=1.0
 pydantic>=2.0
 pytest>=8.0
-gunicorn
+
+# Extended GIS capabilities (each tool degrades to a clear capability error
+# when its group is missing, so the core stays usable).
+rasterio>=1.3        # raster I/O and processing
+gunicorn>=22.0       # production server

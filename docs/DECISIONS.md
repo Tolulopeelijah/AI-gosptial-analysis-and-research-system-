@@ -303,3 +303,28 @@ LLM call (offline fallback clearly labelled). Markers re-validated; response
 carries `paper` + `paper_markdown`; the UI renders a PaperPanel with Markdown
 download. Rationale: methods/results must be incapable of hallucination by
 construction, while prose stays cited.
+
+## J. Broad GIS capability layer (120 tools)
+
+### D35 — Expansion to ~120 tools without placeholders
+Grew 9 → 120 registered tools across 12 categories (data 23, geometry 32,
+gis 3, analysis 22, network 6, raster 9, sensing 4, environmental 7,
+visualization 5, knowledge 4, utility 2, discovery 3). Rules enforced during
+the build: every tool has a real implementation (shapely/pyproj/numpy/pandas/
+rasterio/requests, hand-rolled Dijkstra/Brandes/Moran/Getis-Ord/KDE/Horn),
+typed schemas, validation, and structured errors — no TODO stubs, no
+hardcoded answers, no duplicate-name wrappers (7 near-duplicates cut to land
+the range). Structural choices: shared `agent/tools/common.py` helpers
+(metric CRS, validation, AST-gated calculator, capability gates);
+`{"type":"raster"}` file-descriptor results and `{"type":"network"}` graph
+dicts ride the unchanged $step_id mechanism; orchestrator fans `map_layers`
+out to drawable layers and forwards `download` payloads; style/choropleth
+attachments propagate to the frontend contract untouched. Planner context is
+bounded by a compact one-line-per-tool catalogue plus full schemas for 15
+core/discovery tools only; `discover_tools`/`search_tools`/`get_tool_metadata`
+are themselves registered tools, and `scripts/generate_tool_manifest.py`
+emits `docs/tools_manifest.json` + `docs/TOOLS.md` from live metadata.
+Network providers (Overpass, Nominatim, Open-Meteo, GBIF, STAC, WFS) are
+tested at the transport boundary with faked responses — request building,
+validation, and parsing are real; no live calls in tests. requirements.txt
+splits core vs extended (rasterio); only raster tools gate on it.

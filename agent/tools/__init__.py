@@ -17,8 +17,17 @@ class Tool:
     description: str
     parameters: Dict[str, Any]  # JSON Schema for the "arguments" object
     func: Callable[..., Dict[str, Any]]
-    category: str = "utility"  # data | gis | knowledge | utility
+    category: str = "utility"  # data | gis | geometry | analysis | network |
+    # raster | sensing | environmental | boundaries | visualization |
+    # knowledge | utility | discovery
     required: List[str] = field(default_factory=list)
+    # Registry metadata (§22): capability discovery + manifest generation.
+    requires: List[str] = field(default_factory=list)  # pip packages beyond core
+    network: bool = False  # needs live external service
+    expensive: bool = False  # heavy compute or large transfers
+    input_type: str = "mixed"  # e.g. FeatureCollection, table, coordinates
+    output_type: str = "mixed"  # e.g. FeatureCollection, table, knowledge
+    units: str = ""  # expected units where applicable (m, km, m2, degrees…)
 
     def openai_definition(self) -> Dict[str, Any]:
         schema = dict(self.parameters)
@@ -37,6 +46,23 @@ class Tool:
                     "additionalProperties": False,
                 },
             },
+        }
+
+    def metadata(self) -> Dict[str, Any]:
+        """Registry record for discovery, manifests, and planner catalogs."""
+        props = self.parameters.get("properties", {})
+        return {
+            "name": self.name,
+            "category": self.category,
+            "description": self.description,
+            "arguments": sorted(props),
+            "required": list(self.required),
+            "requires": list(self.requires),
+            "network": self.network,
+            "expensive": self.expensive,
+            "input_type": self.input_type,
+            "output_type": self.output_type,
+            "units": self.units,
         }
 
     def run(self, **kwargs: Any) -> Dict[str, Any]:

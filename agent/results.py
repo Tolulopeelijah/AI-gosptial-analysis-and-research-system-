@@ -93,6 +93,8 @@ def feature_collection(
     role: str = "primary",
     attributes: Optional[List[Dict[str, Any]]] = None,
     layer_id: Optional[str] = None,
+    style: Optional[Dict[str, Any]] = None,
+    choropleth: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """A frontend-compatible GeographicResult wrapping GeoJSON."""
     result: Dict[str, Any] = {
@@ -110,6 +112,10 @@ def feature_collection(
     }
     if attributes:
         result["metadata"]["attributes"] = attributes
+    if isinstance(style, dict) and style:
+        result["style"] = style
+    if isinstance(choropleth, dict) and choropleth:
+        result["choropleth"] = choropleth
     return result
 
 
@@ -124,6 +130,7 @@ def build_final_response(
     sources: Optional[List[Dict[str, Any]]] = None,
     references: Optional[List[Dict[str, Any]]] = None,
     tables: Optional[List[Dict[str, Any]]] = None,
+    downloads: Optional[List[Dict[str, Any]]] = None,
     execution: Optional[Dict[str, Any]] = None,
     error: Optional[Dict[str, Any]] = None,
     timing_ms: Optional[int] = None,
@@ -143,6 +150,8 @@ def build_final_response(
         payload["references"] = references
     if tables:
         payload["tables"] = tables
+    if downloads:
+        payload["downloads"] = downloads
     if execution is not None:
         payload["execution"] = execution
     if error is not None:

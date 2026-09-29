@@ -96,44 +96,87 @@ def test_arcgis():
             meta_resp = requests.get(url.rstrip("/") + "?f=json", timeout=12)
             result["metadata_ms"] = int((time.time() - t0) * 1000)
             result["metadata_status"] = meta_resp.status_code
+            result["metadata_raw_snippet"] = meta_resp.text[:600]
             meta_resp.raise_for_status()
             meta = meta_resp.json()
+            result["metadata_keys"] = sorted(meta.keys())[:30]
+            if "error" in meta:
+                result.update({
+                    "ok": False, "stage": "metadata",
+                    "error": str(meta["error"]),
+                })
+                return result
             result["service_name"] = meta.get("name")
             result["geometryType"] = meta.get("geometryType")
             result["maxRecordCount"] = meta.get("maxRecordCount")
+            result["fields_count"] = len(meta.get("fields", []) or [])
         except Exception as exc:
             result.update({
                 "ok": False, "stage": "metadata",
                 "error": f"{type(exc).__name__}: {exc}",
             })
             return result
-        # 3. Live 1-feature query — proves the /query path the agent uses.
-        try:
-            t0 = time.time()
-            q_resp = requests.get(
-                url.rstrip("/") + "/query",
-                params={"where": "1=1", "outFields": "*",
-                        "returnGeometry": "false",
-                        "f": "json", "resultRecordCount": 1},
-                timeout=12,
-            )
-            result["query_ms"] = int((time.time() - t0) * 1000)
-            result["query_status"] = q_resp.status_code
-            q_resp.raise_for_status()
-            payload = q_resp.json()
-            if "error" in payload:
-                result.update({"ok": False, "stage": "query",
-                               "error": str(payload["error"])})
-                return result
+        # 3. Live query attempts — the single probe above used:
+        #      /query?where=1=1&outFields=*&returnGeometry=false
+        #              &f=json&resultRecordCount=1
+        #    That is what returned the 500. Try variants to isolate whether
+        #    the failure is outFields=*, f=json, returnGeometry, or the
+        #    service itself being broken.
+        variants = [
+            ("a_where_count_only",
+             {"where": "1=1", "returnCountOnly": "true", "f": "json"}),
+            ("b_app_style_geojson",
+             {"where": "1=1", "outFields": "*", "returnGeometry": "true",
+              "f": "geojson", "resultRecordCount": 1}),
+            ("c_objectid_only",
+             {"where": "1=1", "outFields": "OBJECTID",
+              "returnGeometry": "false", "f": "json",
+              "resultRecordCount": 1}),
+            ("d_star_nogeom_json",
+             {"where": "1=1", "outFields": "*", "returnGeometry": "false",
+              "f": "json", "resultRecordCount": 1}),
+        ]
+        attempts = []
+        for label, params in variants:
+            try:
+                t0 = time.time()
+                q_resp = requests.get(
+                    url.rstrip("/") + "/query", params=params, timeout=12)
+                ms = int((time.time() - t0) * 1000)
+                payload = q_resp.json()
+                if "error" in payload:
+                    attempts.append({"variant": label, "params": params,
+                                     "ok": False, "http": q_resp.status_code,
+                                     "ms": ms, "error": str(payload["error"])})
+                else:
+                    n = (len(payload.get("features", []))
+                         if "features" in payload else payload.get("count"))
+                    attempts.append({"variant": label, "params": params,
+                                     "ok": True, "http": q_resp.status_code,
+                                     "ms": ms, "count": n})
+            except Exception as exc:
+                attempts.append({"variant": label, "params": params,
+                                 "ok": False,
+                                 "error": f"{type(exc).__name__}: {exc}"})
+        result["query_attempts"] = attempts
+        good = [a for a in attempts if a.get("ok")]
+        if good:
             result.update({
                 "ok": True,
-                "feature_count": len(payload.get("features", [])),
+                "feature_count": good[0].get("count"),
+                "working_variant": good[0].get("variant"),
             })
-        except Exception as exc:
+        else:
+            first_err = attempts[0].get("error", "") if attempts else ""
             result.update({
                 "ok": False, "stage": "query",
-                "error": f"{type(exc).__name__}: {exc}",
+                "error": (attempts[3].get("error", "") if len(attempts) > 3
+                          else first_err),
             })
+        # Back-compat flat fields for the original single probe (variant d).
+        if len(attempts) > 3:
+            result["query_ms"] = attempts[3].get("ms")
+            result["query_status"] = attempts[3].get("http")
         return result
 
     probes = [probe(name, url) for name, url in layers.items()]

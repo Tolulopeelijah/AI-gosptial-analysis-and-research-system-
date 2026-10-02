@@ -20,11 +20,8 @@ def _discover_xlsx() -> str:
 
 
 class Settings:
-    # The operator's .env uses OPENAI_KEY; also accept the standard name.
-    OPENAI_API_KEY: str = (
-        os.getenv("OPENAI_API_KEY", "").strip()
-        or os.getenv("OPENAI_KEY", "").strip()
-    )
+
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "").strip()
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
 
     # ArcGIS FeatureServer layer URLs. Empty until the operator provides them;

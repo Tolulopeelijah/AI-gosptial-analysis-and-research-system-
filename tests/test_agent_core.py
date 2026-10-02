@@ -408,6 +408,16 @@ def test_chat_mode_accepts_history():
     assert resp["execution"]["mode"] == "chat"
 
 
+def test_spatial_mode_skips_paper_and_llm_explanation():
+    agent = _ruled_agent()
+    resp = agent.ask("Summarize total phosphorus (TP) in the Maumee dataset", mode="spatial")
+    assert resp["status"] == "completed"
+    assert resp["execution"]["mode"] == "spatial"
+    assert "paper" not in resp, "spatial mode must not generate a paper"
+    tables = resp.get("tables") or []
+    assert tables and tables[0]["row_count"] >= 1
+
+
 def test_invalid_mode_defaults_to_research():
     agent = _ruled_agent()
     resp = agent.ask("Summarize total phosphorus (TP) in the Maumee dataset", mode="bogus")

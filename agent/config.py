@@ -24,7 +24,7 @@ class Settings:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "").strip()
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
 
-    # ArcGIS FeatureServer layer URLs. Empty until the operator provides them;
+    # ArcGIS MapServer layer URLs. Empty until the operator provides them;
     # tools report an honest "unavailable" error instead of inventing data.
     ARCGIS_SEPTIC_URL: str = os.getenv("ARCGIS_SEPTIC_URL", "").strip()
     ARCGIS_FLOODPLAIN_0_URL: str = os.getenv("ARCGIS_FLOODPLAIN_0_URL", "").strip()
@@ -50,3 +50,6 @@ class Settings:
 
 
 settings = Settings()
+
+
+print(_discover_xlsx())

@@ -16,10 +16,11 @@ EventSink = Optional[Callable[[Dict[str, Any]], None]]
 
 log = logging.getLogger(__name__)
 
-# Query modes. Research and spatial run the full plan→execute pipeline (the
-# UI emphasises map vs. write-up); data skips the LLM analysis rewrite and
-# returns raw tables/layers for download; chat adds conversation history to
-# planning and explanation for follow-up questions.
+# Query modes. Research runs the full plan→execute pipeline and produces a
+# paper-style report; spatial runs the same pipeline but skips the paper and
+# LLM explanation (the map is the primary output); data skips the LLM analysis
+# rewrite and returns raw tables/layers for download; chat adds conversation
+# history to planning and explanation for follow-up questions.
 MODES = ("chat", "research", "spatial", "data")
 
 
@@ -92,6 +93,7 @@ class GeospatialAgent:
         # standard result. Deterministic sections derive from the validated
         # plan and execution record; only abstract/discussion/conclusion use
         # one grounded LLM call (with offline fallback).
+        # Spatial mode skips the paper — the map is the primary output.
         if mode == "research" and response.get("status") == "completed":
             from .paper import build_paper
 
@@ -103,9 +105,10 @@ class GeospatialAgent:
 
         # Optional LLM-written explanation pass (only for knowledge/combined
         # answers; GIS summaries already come from the orchestrator). Skipped
-        # in data mode, which returns raw results for download without analysis.
+        # in data mode (raw results for download) and spatial mode (map-first:
+        # the map is the answer, not text).
         kind = outcome.get("kind", "gis")
-        if (mode != "data" and kind in ("knowledge", "combined")
+        if (mode not in ("data", "spatial") and kind in ("knowledge", "combined")
                 and response.get("status") == "completed"):
             references = response.get("references") or []
             prompt_refs = [r for r in references if r.get("passage")]

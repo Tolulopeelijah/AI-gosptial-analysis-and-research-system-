@@ -78,9 +78,25 @@ Rules:
   have full schemas attached. Prefer catalogue tools over improvisation; the
   discover_tools/search_tools/get_tool_metadata tools can inspect the catalogue
   from inside a plan when the right capability is unclear.
-- query_arcgis retrieves features; buffer/intersect/nearest process them.
+- query_arcgis retrieves features, with optional server-side spatial filter
+  ("near": "$other_step", "distance_km": N, or equivalently
+  "spatial_filter": {"reference": "$other_step"|"dataset_name",
+  "relationship": "within_distance"|"intersects", "distance": N,
+  "units": "meters"}); buffer/intersect/nearest process
+  in-memory results and non-ArcGIS data only.
+- For ArcGIS-to-ArcGIS proximity (e.g. septic systems near floodplains) use a
+  two-step plan — fetch the reference layer, then query the target with
+  "near" + "distance_km" — never fetch-then-buffer-then-intersect, which
+  silently drops matches outside the max_features cap. A single-step
+  "spatial_filter" with a dataset-name reference is also accepted; the tool
+  paginates and resolves the reference server-side.
+- query_arcgis pages automatically: "page_size" is the per-request service
+  page (default 1000, max 2000); "max_features" is the total intent per
+  layer URL (default 1000; larger values page to completion up to a safety
+  ceiling, truncation always reported). Prefer server-side spatial filtering
+  over raising max_features to download whole counties.
 - For county-wide septic/floodplain fetches pass "max_features": 2000
-  (server cap); results still report total vs sampled counts.
+  (default analysis window); results still report total vs sampled counts.
 - query_maumee answers tabular water-quality questions (no per-row geometry exists).
 - search_knowledge_base answers publication/science questions.
 - Every step needs "id", "tool", "arguments" (a JSON object of actual values), and "depends_on" (a JSON array of step ids, possibly empty).
@@ -90,10 +106,8 @@ Rules:
 {"goal": "Find septic systems within 2 km of floodplain areas", "kind": "combined",
  "unsupported_reason": "",
  "steps": [
-  {"id": "floodplains", "tool": "query_arcgis", "arguments": {"dataset": "floodplains"}, "depends_on": []},
-  {"id": "septic", "tool": "query_arcgis", "arguments": {"dataset": "septic_systems"}, "depends_on": []},
-  {"id": "buffer", "tool": "buffer", "arguments": {"input": "$floodplains", "distance": 2, "unit": "kilometers"}, "depends_on": ["floodplains"]},
-  {"id": "result", "tool": "intersect", "arguments": {"input_a": "$septic", "input_b": "$buffer"}, "depends_on": ["septic", "buffer"]},
+  {"id": "floodplains", "tool": "query_arcgis", "arguments": {"dataset": "floodplains", "max_features": 2000}, "depends_on": []},
+  {"id": "septic", "tool": "query_arcgis", "arguments": {"dataset": "septic_systems", "max_features": 2000, "near": "$floodplains", "distance_km": 2}, "depends_on": ["floodplains"]},
   {"id": "kb", "tool": "search_knowledge_base", "arguments": {"query": "phosphorus water-quality implications"}, "depends_on": []}
  ]}
 Respond with ONLY the JSON plan object."""
@@ -230,8 +244,11 @@ class OpenAIPlanner:
 
 # ------------------------------------------------- rule-based fallback ---
 
+# Full unit names first (longest match wins) with a word boundary, so
+# "5 miles" captures "miles" — not "m" — and short codes need the boundary
+# so "mi"/"m" don't match stray substrings.
 _DISTANCE_RE = re.compile(
-    r"within\s+([\d.]+)\s*(km|kilometers?|kilometres?|m|meters?|metres?|miles?|mi|feet|ft)",
+    r"within\s+([\d.]+)\s*(kilometers?|kilometres?|miles?|meters?|metres?|feet|foot|km|mi|m|ft)\b",
     re.I,
 )
 _MAUMEE_RE = re.compile(
@@ -243,7 +260,7 @@ _EXTREMES_RE = re.compile(
     r"|\brecord\s+(high|low)\b|\bwhen was\b|\bwhat day\b|\bwhich date\b", re.I)
 
 # Full parameter names first (longest match wins); short codes need word
-# boundaries so "si" doesn't match stray substrings.
+# boundaries so "flow" doesn't fire inside "follow".
 _PARAM_NAMES = [
     ("total suspended solids", "TSS"), ("suspended solids", "TSS"),
     ("suspended sediment", "TSS"),
@@ -342,18 +359,28 @@ class RulePlanner:
             needs_gis = ("intersect" in q.lower() or " in " in f" {q.lower()} "
                          or "within" in q.lower() or "near" in q.lower()
                          or (wants_septic and wants_flood))
-            if dist and "floodplains" in avail:
+            if dist and "floodplains" in avail and "septic_systems" in avail:
+                # Server-side proximity: filter septic systems at the
+                # source against the floodplain geometries instead of
+                # fetching the first 2000 rows and intersecting locally
+                # (which silently misses matches outside the cap).
+                val, unit = float(dist.group(1)), dist.group(2).lower()
+                for s in steps:
+                    if s.id == "septic":
+                        s.arguments = {
+                            **s.arguments,
+                            "near": "$floodplains",
+                            "distance_km": self._to_km(val, unit),
+                        }
+                        if "floodplains" not in s.depends_on:
+                            s.depends_on = [*s.depends_on, "floodplains"]
+            elif dist and "floodplains" in avail:
                 val, unit = float(dist.group(1)), dist.group(2).lower()
                 steps.append(PlanStep(
                     id="buffer", tool="buffer",
                     arguments={"input": "$floodplains", "distance": val,
                                "unit": self._norm_unit(unit)},
                     depends_on=["floodplains"]))
-                if "septic_systems" in avail:
-                    steps.append(PlanStep(
-                        id="result", tool="intersect",
-                        arguments={"input_a": "$septic", "input_b": "$buffer"},
-                        depends_on=["septic", "buffer"]))
             elif needs_gis and wants_septic and wants_flood:
                 steps.append(PlanStep(
                     id="result", tool="intersect",
@@ -466,7 +493,21 @@ class RulePlanner:
             return "meters"
         if unit.startswith("mile") or unit == "mi":
             return "miles"
+        if unit in ("feet", "foot", "ft"):
+            return "feet"
         return "meters"
+
+    @staticmethod
+    def _to_km(value: float, unit: str) -> float:
+        """Raw distance phrase -> kilometres for query_arcgis distance_km."""
+        unit = unit.lower()
+        if unit.startswith("km") or unit.startswith("kilom"):
+            return value
+        if unit.startswith("mile") or unit == "mi":
+            return value * 1.609344
+        if unit in ("feet", "foot", "ft"):
+            return value * 0.3048 / 1000.0
+        return value / 1000.0  # metres and friends
 
 
 def make_planner():

@@ -2324,13 +2324,17 @@
     {
       "name": "query_arcgis",
       "category": "data",
-      "description": "Retrieve GeoJSON features from a registered ArcGIS FeatureServer dataset (semantic name).",
+      "description": "Retrieve GeoJSON features from a registered ArcGIS FeatureServer dataset (semantic name). Pages automatically (page_size per request; max_features is the total intent, never a silent subset). Supports server-side proximity via near ($step reference) + distance_km or the high-level spatial_filter {reference, relationship, distance, units} (server-side preferred, local metric fallback); truncation always reported.",
       "arguments": [
         "bbox",
         "dataset",
+        "distance_km",
         "max_features",
+        "near",
         "out_fields",
+        "page_size",
         "return_geometry",
+        "spatial_filter",
         "where"
       ],
       "required": [
@@ -2362,11 +2366,25 @@
           },
           "max_features": {
             "type": "integer",
-            "description": "Max features to return (default 1000, cap 2000)."
+            "description": "Total features wanted per layer URL (default 1000; pages automatically with page_size until this total, the server is exhausted, or the 50000 safety ceiling; multi-URL datasets return up to max per URL). NOT a silent subset: truncation is reported via truncated/total_count."
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "Per-request service page size (resultRecordCount; default 1000, ceiling 2000)."
           },
           "bbox": {
             "type": "string",
             "description": "Optional 'west,south,east,north' (EPSG:4326) spatial filter."
+          },
+          "near": {
+            "description": "Optional $step reference to a FeatureCollection defining the search area server-side (e.g. \"$floodplains\")."
+          },
+          "distance_km": {
+            "type": "number",
+            "description": "Optional proximity radius in kilometres around near (server-side distance + esriSRUnit_Meter)."
+          },
+          "spatial_filter": {
+            "description": "High-level alternative to near/distance_km: {\"reference\": \"$step\"|FeatureCollection|\"dataset_name\", \"relationship\": \"within_distance\"|\"intersects\", \"distance\": number, \"units\": \"meters\"|\"kilometers\"|\"feet\"|\"miles\"}. Server-side filtering is preferred; local metric fallback is automatic when the service lacks distance support."
           }
         }
       }

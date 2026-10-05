@@ -3,6 +3,23 @@
 The model supplies *semantic* parameters (`dataset`, optional attribute /
 spatial filters). This module translates them into ArcGIS REST requests.
 
+Pagination model (Part 1):
+  * ``page_size`` is the per-request service limit (``resultRecordCount``,
+    capped at ``PAGE_SIZE_MAX`` = 2000 — the service page size, not the
+    analysis ceiling).
+  * ``max_features`` is the caller's total intent for this query (default
+    1000, historical default cap 2000 via ``MAX_FEATURES`` for backwards
+    compatibility). Explicit larger values page automatically with
+    ``resultOffset``/``resultRecordCount`` until ``exceededTransferLimit``
+    clears or ``max_features``/``ABSOLUTE_MAX_FEATURES`` is reached.
+  * Server-side spatial filtering (``near`` + ``distance_km`` or the
+    equivalent high-level ``spatial_filter`` dict) is preferred over
+    downloading whole layers: the ArcGIS server performs the
+    within-distance predicate and only matching features are transferred.
+  * When the service cannot perform distance queries, the tool falls back
+    to a *complete* paginated fetch + local metric computation — never a
+    silent first-2000 subset. Truncation is always reported explicitly.
+
 Service metadata (geometry type, fields, CRS, capabilities) is discovered at
 runtime via `?f=json` — never hardcoded. Datasets without a configured URL
 report `available: False` so the agent can honestly say the capability is
@@ -11,15 +28,26 @@ missing instead of inventing data.
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
 log = logging.getLogger(__name__)
 
 TIMEOUT = 30
-MAX_FEATURES = 2000  # guardrail: keep payloads out of LLM context
+MAX_FEATURES = 2000  # historical default total cap (kept for backwards compat)
+PAGE_SIZE = 1000  # default rows per paged ArcGIS request
+PAGE_SIZE_MAX = 2000  # per-request service page size (resultRecordCount ceiling)
+ABSOLUTE_MAX_FEATURES = 50000  # hard safety ceiling for explicit full-analysis fetches
+MAX_PAGES_GUARD = 100  # infinite-pagination-loop guard (per URL)
+MAX_GEOMETRY_CHARS = 8000  # POST-body guard before simplify/batch
+NEAR_BATCH_SIZE = 8  # reference polygons per spatial request when batching
+MAX_REFERENCE_FEATURES = 5000  # reference geometries above this need explicit bbox/narrowing
+
+# Service capability cache: url -> parsed capability dict.
+_CAPABILITY_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
 def _mock_enabled() -> bool:
@@ -63,7 +91,527 @@ def describe_layer(url: str) -> Dict[str, Any]:
         "capabilities": meta.get("capabilities"),
         "maxRecordCount": meta.get("maxRecordCount"),
         "supportedQueryFormats": meta.get("supportedQueryFormats"),
+        **_capability_flags(meta),
     }
+
+
+def _capability_flags(meta: Dict[str, Any]) -> Dict[str, Any]:
+    """Parse Esri capability flags (never assume support)."""
+    adv = meta.get("advancedQueryCapabilities") or {}
+    return {
+        "supportsPagination": bool(
+            meta.get("supportsPagination", adv.get("supportsPagination", False))
+        ),
+        "supportsQueryWithDistance": bool(meta.get("supportsQueryWithDistance", False)),
+        "supportsAdvancedQueries": bool(meta.get("supportsAdvancedQueries", False)),
+        "supportsStatistics": bool(adv.get("supportsStatistics", False)),
+    }
+
+
+def get_layer_capabilities(url: str) -> Dict[str, Any]:
+    """Best-effort capability probe for one layer URL (cached).
+
+    Returns ``{"supportsPagination": ..., "supportsQueryWithDistance": ...,
+    "supportsAdvancedQueries": ..., "maxRecordCount": ..., "error": ...}``.
+    Network/metadata failures yield ``{"unknown": True}`` so callers apply
+    the safe default (assume pagination works via resultOffset, verify
+    distance support by probing, never assume).
+    """
+    if url in _CAPABILITY_CACHE:
+        return _CAPABILITY_CACHE[url]
+    try:
+        meta = describe_layer(url)
+        # A minimal stub (e.g. {"geometryType": ...} in tests) carries no
+        # capability keys — treat as inconclusive, not as explicit False,
+        # so paging is still attempted with repeat-page detection as guard.
+        has_keys = any(k in meta for k in (
+            "supportsPagination", "supportsQueryWithDistance",
+            "supportsAdvancedQueries", "advancedQueryCapabilities",
+            "capabilities", "maxRecordCount"))
+        if not has_keys and "features" in meta:
+            caps = {"unknown": True, "error": "non-metadata response"}
+        elif not has_keys:
+            caps = {"unknown": True, "geometryType": meta.get("geometryType")}
+        else:
+            caps = {
+                "supportsPagination": bool(meta.get("supportsPagination", False)),
+                "supportsQueryWithDistance": bool(meta.get("supportsQueryWithDistance", False)),
+                "supportsAdvancedQueries": bool(meta.get("supportsAdvancedQueries", False)),
+                "maxRecordCount": meta.get("maxRecordCount"),
+                "geometryType": meta.get("geometryType"),
+            }
+    except Exception as exc:
+        caps = {"unknown": True, "error": str(exc)[:200]}
+    _CAPABILITY_CACHE[url] = caps
+    return caps
+
+
+def clear_capability_cache() -> None:
+    """Test hook: reset the capability cache."""
+    _CAPABILITY_CACHE.clear()
+
+
+def _xy(pair):
+    return [float(pair[0]), float(pair[1])]
+
+
+def _esri_rings(polys) -> List:
+    rings = []
+    for poly in polys:
+        rings.append([_xy(c) for c in poly.exterior.coords])
+        for hole in poly.interiors:
+            rings.append([_xy(c) for c in hole.coords])
+    return rings
+
+
+def _esri_chunk(pairs) -> Tuple[str, str]:
+    """One chunk of (feature, EPSG:4326 shapely geom) pairs -> Esri geometry."""
+    polys, paths, points = [], [], []
+    for _, geom in pairs:
+        kind = geom.geom_type
+        if kind == "Polygon":
+            polys.append(geom)
+        elif kind == "MultiPolygon":
+            polys.extend(geom.geoms)
+        elif kind == "LineString":
+            paths.append([_xy(c) for c in geom.coords])
+        elif kind == "MultiLineString":
+            paths.extend([_xy(c) for c in part.coords] for part in geom.geoms)
+        elif kind == "Point":
+            points.append(_xy(geom.coords[0]))
+        elif kind == "MultiPoint":
+            points.extend(_xy(c) for c in geom.coords)
+    if polys:
+        return json.dumps({"rings": _esri_rings(polys)}), "esriGeometryPolygon"
+    if paths:
+        return json.dumps({"paths": paths}), "esriGeometryPolyline"
+    if points:
+        if len(points) == 1:
+            return json.dumps({"x": points[0][0], "y": points[0][1]}), \
+                "esriGeometryPoint"
+        return json.dumps({"points": points}), "esriGeometryMultipoint"
+    raise ValueError("near area has no usable geometries")
+
+
+def _simplify_pairs(pairs, tolerance_m: float):
+    """Douglas-Peucker simplification in a metric CRS (for oversized POSTs)."""
+    from ..common import metric_crs_for, reproject
+
+    geoms = [g for _, g in pairs]
+    metric = metric_crs_for(geoms)
+    out = []
+    for feat, geom in pairs:
+        gm = reproject(geom, "EPSG:4326", metric)
+        simple = gm.simplify(tolerance_m, preserve_topology=True)
+        if simple.is_empty:
+            continue
+        out.append((feat, reproject(simple, metric, "EPSG:4326")))
+    return out
+
+
+def _near_chunks(near, distance_m: Optional[float]) -> Tuple[List[Tuple[str, str]], int]:
+    """Resolved near FeatureCollection -> Esri POST chunks + feature count."""
+    from ..common import crs_of, reproject, valid_shapes
+
+    pairs = [(f, g) for f, g in valid_shapes(near, "near") if not g.is_empty]
+    src = crs_of(near)
+    if src != "EPSG:4326":
+        pairs = [(f, reproject(g, src, "EPSG:4326")) for f, g in pairs]
+    if not pairs:
+        return [], 0
+    chunks = [pairs[i:i + NEAR_BATCH_SIZE]
+              for i in range(0, len(pairs), NEAR_BATCH_SIZE)]
+    if len(chunks) == 1:
+        geom, kind = _esri_chunk(chunks[0])
+        if len(geom) <= MAX_GEOMETRY_CHARS:
+            return [(geom, kind)], len(pairs)
+        tolerance = 100.0 if not distance_m else min(250.0, max(25.0, distance_m / 20.0))
+        simple = _simplify_pairs(chunks[0], tolerance)
+        geom, kind = _esri_chunk(simple or chunks[0])
+        if len(geom) <= MAX_GEOMETRY_CHARS:
+            log.info("near geometry simplified (tol %.0f m) for POST", tolerance)
+            return [(geom, kind)], len(pairs)
+    log.info("near area split into %d POST batches", len(chunks))
+    batched = []
+    for chunk in chunks:
+        geom, kind = _esri_chunk(chunk)
+        batched.append((geom, kind))
+    return batched, len(pairs)
+
+
+def _dedupe_key(feature: Dict[str, Any]) -> Tuple:
+    props = feature.get("properties", {}) or {}
+    oid = props.get("OBJECTID")
+    if oid is not None:
+        return ("oid", oid)
+    geom = feature.get("geometry")
+    return ("geom", json.dumps(geom, sort_keys=True) if geom else id(feature))
+
+
+def _post_query(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    resp = requests.post(url.rstrip("/") + "/query", data=params, timeout=TIMEOUT)
+    resp.raise_for_status()
+    page = resp.json()
+    if isinstance(page, dict) and "error" in page:
+        raise RuntimeError(page["error"])
+    return page
+
+
+def _fetch_spatial_pages(
+    url: str,
+    core: Dict[str, Any],
+    chunks,
+    max_features: int,
+    page_size: int,
+    *,
+    pagination_supported: bool = True,
+) -> Tuple[List[Dict[str, Any]], int, Dict[str, Any]]:
+    """POST spatial chunks with paging; returns (features, pages, page_info).
+
+    Semantics are OR across chunks: a target matching ANY reference chunk is
+    kept (deduped by OBJECTID/geometry). Guards: per-chunk page budget
+    (``MAX_PAGES_GUARD``), empty-page break, and repeated-offset detection
+    (same ``resultOffset`` yielding zero new features twice stops paging for
+    that chunk instead of looping forever).
+    """
+    collected: List[Dict[str, Any]] = []
+    seen = set()
+    pages = 0
+    stopped_early: Optional[str] = None
+    for geometry, geometry_type in chunks:
+        params = dict(core, geometry=geometry, geometryType=geometry_type,
+                      inSR=4326, spatialRel="esriSpatialRelIntersects")
+        chunk_offset = 0
+        chunk_pages = 0
+        empty_streak = 0
+        last_new_total = len(collected)
+        while len(collected) < max_features:
+            if chunk_pages >= MAX_PAGES_GUARD:
+                stopped_early = f"page guard ({MAX_PAGES_GUARD}/chunk)"
+                break
+            req = dict(params, f="geojson",
+                       resultRecordCount=min(page_size, max_features - len(collected)))
+            if chunk_offset and pagination_supported:
+                req["resultOffset"] = chunk_offset
+            page = _post_query(url, req)
+            feats = page.get("features", []) or []
+            new = 0
+            for feat in feats:
+                key = _dedupe_key(feat)
+                if key not in seen:
+                    seen.add(key)
+                    collected.append(feat)
+                    new += 1
+            pages += 1
+            chunk_pages += 1
+            if not feats:
+                empty_streak += 1
+                if empty_streak >= 2:
+                    break
+            else:
+                empty_streak = 0
+            if len(collected) == last_new_total and feats:
+                # Server ignored resultOffset (returned the same page):
+                # count it once, then stop this chunk to avoid an infinite loop.
+                if chunk_pages > 1:
+                    stopped_early = "server ignored resultOffset (repeat page)"
+                    break
+            last_new_total = len(collected)
+            if not page.get("exceededTransferLimit") or not feats:
+                break
+            if not pagination_supported:
+                stopped_early = "pagination unsupported (single page)"
+                break
+            chunk_offset += len(feats)
+        if len(collected) >= max_features:
+            break
+    info = {"stopped_early": stopped_early} if stopped_early else {}
+    return collected, pages, info
+
+
+SPATIAL_FILTER_RELATIONSHIPS = ("within_distance", "intersects")
+
+_DISTANCE_TO_M = {
+    "meters": 1.0, "metres": 1.0, "m": 1.0,
+    "kilometers": 1000.0, "kilometres": 1000.0, "km": 1000.0,
+    "feet": 0.3048, "foot": 0.3048, "ft": 0.3048,
+    "miles": 1609.344, "mile": 1609.344, "mi": 1609.344,
+}
+
+
+def _resolve_spatial_args(
+    near: Any,
+    distance_km: Optional[float],
+    spatial_filter: Optional[Dict[str, Any]],
+) -> Tuple[Any, Optional[float], Optional[Dict[str, Any]]]:
+    """Normalise ``near``/``distance_km`` and high-level ``spatial_filter``.
+
+    ``spatial_filter`` is the LLM-friendly form that never exposes raw Esri
+    REST params::
+
+        {"reference": "$floodplains" | FeatureCollection | "floodplains",
+         "relationship": "within_distance" | "intersects",
+         "distance": 2000, "units": "meters"}
+
+    ``reference`` as a dataset name is resolved by the caller (paginated
+    fetch); here it is passed through so ``query_arcgis`` can fetch it.
+    Returns ``(near_fc_or_name, distance_km, echo)``.
+    """
+    if spatial_filter is None:
+        return near, distance_km, None
+    if not isinstance(spatial_filter, dict):
+        raise ValueError("spatial_filter must be an object")
+    ref = spatial_filter.get("reference", spatial_filter.get("reference_dataset"))
+    rel = (spatial_filter.get("relationship") or "within_distance").lower()
+    if rel not in SPATIAL_FILTER_RELATIONSHIPS:
+        raise ValueError(
+            f"unknown spatial relationship '{rel}'; use one of "
+            f"{', '.join(SPATIAL_FILTER_RELATIONSHIPS)}"
+        )
+    dist = spatial_filter.get("distance")
+    units = (spatial_filter.get("units") or "meters").lower()
+    dist_km: Optional[float] = None
+    if rel == "within_distance":
+        if dist is None:
+            raise ValueError("spatial_filter within_distance needs 'distance'")
+        try:
+            factor = _DISTANCE_TO_M[units]
+        except KeyError:
+            raise ValueError(f"unknown units '{units}'; use meters|kilometers|feet|miles")
+        dist_km = float(dist) * factor / 1000.0
+        if dist_km <= 0:
+            raise ValueError("spatial_filter distance must be positive")
+    # Explicit near/distance_km args win when both forms are given.
+    echo = {
+        "relationship": rel,
+        "distance": dist,
+        "units": units,
+        "reference": (
+            ref if isinstance(ref, str)
+            else f"FeatureCollection({len((ref or {}).get('features', []))})"
+            if isinstance(ref, dict) else None
+        ),
+    }
+    return (near if near is not None else ref), (
+        distance_km if distance_km is not None else dist_km), echo
+
+
+def _local_within_distance_fallback(
+    target_features: List[Dict[str, Any]],
+    reference_fc: Dict[str, Any],
+    distance_m: Optional[float],
+) -> List[Dict[str, Any]]:
+    """Client-side ANY-semantics filter in a local metric CRS.
+
+    Keeps target features within ``distance_m`` of the union of reference
+    geometries (or intersecting the union when ``distance_m`` is None).
+    Metric work reprojects to UTM/AEQD — never naive degrees. Invalid
+    geometries are skipped and counted by the caller via lengths.
+    """
+    from ..common import crs_of, metric_crs_for, reproject, valid_shapes
+    from shapely.ops import unary_union
+
+    target_fc = {"type": "FeatureCollection", "crs": "EPSG:4326",
+                 "features": target_features}
+    t_pairs = valid_shapes(target_fc, "target")
+    r_pairs = valid_shapes(reference_fc, "near")
+    if not t_pairs or not r_pairs:
+        return []
+    src_t, src_r = crs_of(target_fc), crs_of(reference_fc)
+    metric = metric_crs_for([g for _, g in t_pairs] + [g for _, g in r_pairs])
+    ref_union = unary_union([reproject(g, src_r, metric) for _, g in r_pairs])
+    out = []
+    for feat, geom in t_pairs:
+        gm = reproject(geom, src_t, metric)
+        if distance_m is not None:
+            if gm.distance(ref_union) <= distance_m:
+                out.append(feat)
+        elif gm.intersects(ref_union):
+            out.append(feat)
+    return out
+
+
+def _fetch_plain_pages(
+    url: str, where: str, out_fields: str, return_geometry: bool,
+    bbox_params: Dict[str, Any], max_features: int, page_size: int,
+    pagination_supported: bool,
+) -> Tuple[List[Dict[str, Any]], int, Dict[str, Any]]:
+    """GET-based paged fetch with loop guards; returns (features, pages, info).
+
+    Each request asks for at most ``page_size`` rows (``resultRecordCount``);
+    ``resultOffset`` advances by rows received. Guards: ``MAX_PAGES_GUARD``,
+    empty-page streak, and repeat-page detection (server ignoring
+    ``resultOffset``). A failed page keeps earlier pages and records a
+    partial-layer note instead of zeroing the URL.
+    """
+    per_layer: List[Dict[str, Any]] = []
+    seen: set = set()
+    url_pages = 0
+    offset = 0
+    empty_streak = 0
+    stopped_early: Optional[str] = None
+    layer_note: Optional[str] = None
+    while len(per_layer) < max_features:
+        if url_pages >= MAX_PAGES_GUARD:
+            stopped_early = f"page guard ({MAX_PAGES_GUARD})"
+            break
+        params: Dict[str, Any] = {
+            "where": where,
+            "outFields": out_fields,
+            "returnGeometry": "true" if return_geometry else "false",
+            "f": "geojson",
+            "resultRecordCount": min(page_size, max_features - len(per_layer)),
+            # County layers are natively wkid 103129 (Ohio North, feet);
+            # force WGS84 so the frontend map plots correctly.
+            "outSR": 4326,
+        }
+        params.update(bbox_params)
+        if offset and pagination_supported:
+            params["resultOffset"] = offset
+        try:
+            resp = requests.get(url.rstrip("/") + "/query", params=params,
+                                timeout=TIMEOUT)
+            resp.raise_for_status()
+            page = resp.json()
+            if "error" in page:
+                raise RuntimeError(page["error"])
+        except Exception as exc:
+            if per_layer:
+                layer_note = (f"{url}: kept {len(per_layer)} features "
+                              f"before page error: {exc}")
+                log.warning("partial layer fetch: %s", layer_note)
+                break
+            raise
+        feats = page.get("features", []) or []
+        new = 0
+        for feat in feats:
+            key = _dedupe_key(feat)
+            if key not in seen:
+                seen.add(key)
+                per_layer.append(feat)
+                new += 1
+        url_pages += 1
+        if not feats:
+            empty_streak += 1
+            if empty_streak >= 2:
+                break
+        else:
+            empty_streak = 0
+        if feats and new == 0 and url_pages > 1:
+            stopped_early = "server ignored resultOffset (repeat page)"
+            break
+        if not page.get("exceededTransferLimit") or len(per_layer) >= max_features:
+            break
+        if not pagination_supported:
+            stopped_early = "pagination unsupported (single page)"
+            break
+        offset += len(feats)
+        if offset >= max_features:
+            break
+    info: Dict[str, Any] = {}
+    if stopped_early:
+        info["stopped_early"] = stopped_early
+    if layer_note:
+        info["layer_note"] = layer_note
+    return per_layer[:max_features], url_pages, info
+
+
+def _fix_total_for_url(per_url_counts, url: str, scanned: int, kept: int,
+                       total_holder: List) -> None:
+    """Annotate per-URL totals after a local fallback (matched vs scanned).
+
+    The pre-fetch ``returnCountOnly`` total is unfiltered (or distance-aware
+    on services that support it); after a local fallback the exact matched
+    total is ``kept``. Replace the entry total and adjust the global total
+    (``total_holder[0]``) by the same delta so truncation compares
+    matched-vs-matched, not matched-vs-scanned.
+    """
+    for entry in per_url_counts:
+        if entry.get("url") == url:
+            old = entry.get("total")
+            entry["scanned"] = scanned
+            entry["matched"] = kept
+            entry["total"] = kept
+            if total_holder and total_holder[0] is not None and old is not None:
+                try:
+                    total_holder[0] = total_holder[0] - int(old) + int(kept)
+                except (TypeError, ValueError):
+                    pass
+            return
+    per_url_counts.append({"url": url, "total": kept, "scanned": scanned,
+                           "matched": kept, "fetched": kept, "pages": 0})
+    if total_holder and total_holder[0] is not None:
+        # No prior entry for this URL: totals were best-effort; leave global.
+        pass
+
+
+def _spatial_total(url: str, core: Dict[str, Any], chunks) -> Optional[int]:
+    """Best-effort server-side match count for the same spatial filter."""
+    total = 0
+    try:
+        for geometry, geometry_type in chunks:
+            params = dict(core, geometry=geometry, geometryType=geometry_type,
+                          inSR=4326, spatialRel="esriSpatialRelIntersects",
+                          returnCountOnly="true", f="json")
+            page = _post_query(url, params)
+            if "count" not in page:
+                return None
+            total += int(page["count"])
+        return total
+    except Exception:
+        return None
+
+
+def _dissolved_near_chunks(near, distance_m) -> Tuple[List[Tuple[str, str]], int, str]:
+    """Build Esri POST chunks, dissolving the reference union when large.
+
+    ANY-semantics are preserved either way (union == within ANY member).
+    Returns (chunks, feature_count, method) with method 'union' or 'batched'.
+    """
+    from ..common import crs_of, reproject, valid_shapes
+
+    pairs = [(f, g) for f, g in valid_shapes(near, "near") if not g.is_empty]
+    src = crs_of(near)
+    if src != "EPSG:4326":
+        pairs = [(f, reproject(g, src, "EPSG:4326")) for f, g in pairs]
+    if not pairs:
+        return [], 0, "empty"
+    if len(pairs) > MAX_REFERENCE_FEATURES:
+        raise ValueError(
+            f"reference area has {len(pairs)} geometries (limit "
+            f"{MAX_REFERENCE_FEATURES}); narrow with a bbox or place name"
+        )
+    # Prefer a single dissolved union: 1 POST chunk instead of N batches.
+    if len(pairs) > NEAR_BATCH_SIZE:
+        try:
+            from shapely.ops import unary_union
+
+            union = unary_union([g for _, g in pairs])
+            dissolved = {"type": "FeatureCollection", "crs": "EPSG:4326",
+                         "features": [{"type": "Feature", "properties": {},
+                                       "geometry": __import__(
+                                           "shapely.geometry", fromlist=["mapping"]
+                                       ).mapping(union)}]}
+            chunks, _ = _near_chunks(dissolved, distance_m)
+            if chunks:
+                log.info("near area dissolved: %d features -> %d chunk(s)",
+                         len(pairs), len(chunks))
+                return chunks, len(pairs), "union"
+        except Exception as exc:
+            log.info("near dissolve failed (%s); falling back to batching", exc)
+    chunks, count = _near_chunks(near, distance_m)
+    return chunks, count, "batched"
+
+
+def _fetch_reference_by_name(
+    ref_name: str, ref_max: int = 20000,
+    _depth: int = 0,
+) -> Dict[str, Any]:
+    """Fetch a reference dataset by semantic name (paginated, no spatial filter)."""
+    if _depth > 0:
+        return {"ok": False,
+                "error": "nested spatial_filter references are not supported"}
+    return query_arcgis(ref_name, max_features=ref_max, _depth=_depth + 1)
 
 
 def query_arcgis(
@@ -74,8 +622,38 @@ def query_arcgis(
     max_features: int = 1000,
     bbox: Optional[str] = None,
     layer: Optional[int] = None,
+    near: Any = None,
+    distance_km: Optional[float] = None,
+    page_size: Optional[int] = None,
+    spatial_filter: Optional[Dict[str, Any]] = None,
+    _depth: int = 0,
 ) -> Dict[str, Any]:
-    """Query a registered ArcGIS dataset; returns a GeoJSON FeatureCollection."""
+    """Query a registered ArcGIS dataset; returns a GeoJSON FeatureCollection.
+
+    Pagination: ``page_size`` is the per-request ``resultRecordCount``
+    (default 1000, ceiling ``PAGE_SIZE_MAX`` 2000); ``max_features`` is the
+    total intent per layer URL (default 1000, historical default cap 2000,
+    absolute ceiling ``ABSOLUTE_MAX_FEATURES`` 50000). Paging uses
+    ``resultOffset`` until ``exceededTransferLimit`` clears, ``max_features``
+    is reached, or loop guards trip. Any cap is reported via
+    ``truncated``/``truncation_warning`` — never silent.
+
+    Spatial: ``near`` (resolved ``$step`` FeatureCollection) + optional
+    ``distance_km`` filters server-side (Esri ``Intersects`` + ``distance``
+    in ``esriSRUnit_Meter``); only matching features are transferred.
+    ``spatial_filter`` is the equivalent high-level form that keeps raw Esri
+    params away from the planner::
+
+        {"reference": "$floodplains" | FeatureCollection | "floodplains",
+         "relationship": "within_distance" | "intersects",
+         "distance": 2000, "units": "meters"}
+
+    A bare dataset name as ``reference`` is auto-fetched (paginated) so a
+    single-step plan can express layer-to-layer proximity. When the service
+    lacks ``supportsQueryWithDistance``, the tool falls back to a *complete*
+    paginated fetch + local metric computation (never a silent first-2000
+    subset); the ``strategy`` field records which path ran.
+    """
     from agent import registry as registry_module
 
     reg = registry_module.build_registry()
@@ -101,106 +679,298 @@ def query_arcgis(
             ),
             "code": "data_unavailable",
         }
+    # ---- high-level spatial_filter -> near/distance_km (LLM decides WHAT) ----
+    spatial_echo: Optional[Dict[str, Any]] = None
+    try:
+        near, distance_km, spatial_echo = _resolve_spatial_args(
+            near, distance_km, spatial_filter)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    # Bare dataset-name reference: auto-fetch it (paginated) so the planner
+    # can express "septic near floodplains" without a manual two-step plan.
+    reference_fc: Optional[Dict[str, Any]] = None
+    if isinstance(near, str) and not near.startswith("$"):
+        ref_name = near
+        if ref_name not in reg:
+            return {"ok": False,
+                    "error": f"spatial reference dataset '{ref_name}' unknown; "
+                             f"known: {sorted(reg)}"}
+        ref_max = 20000
+        if isinstance(spatial_filter, dict):
+            try:
+                ref_max = max(1, min(int(spatial_filter.get(
+                    "reference_max_features", ref_max)), ABSOLUTE_MAX_FEATURES))
+            except (TypeError, ValueError):
+                pass
+        ref_res = _fetch_reference_by_name(ref_name, ref_max, _depth=_depth)
+        if not ref_res.get("ok"):
+            return {"ok": False,
+                    "error": f"reference dataset '{ref_name}' fetch failed: "
+                             f"{ref_res.get('error')}"}
+        if ref_res.get("truncated"):
+            return {
+                "ok": False,
+                "error": (
+                    f"reference dataset '{ref_name}' truncated "
+                    f"({ref_res.get('count')} of {ref_res.get('total_count')}); "
+                    "narrow with a bbox or raise reference_max_features "
+                    "instead of analysing a silent subset."
+                ),
+                "code": "reference_truncated",
+                "reference_count": ref_res.get("count"),
+                "reference_total": ref_res.get("total_count"),
+            }
+        reference_fc = ref_res
+        near = ref_res
+        if spatial_echo is not None:
+            spatial_echo["reference_resolved"] = ref_res.get("count")
     if _mock_enabled():
         from .arcgis_mock import query_mock
 
-        return query_mock(dataset, where=where, bbox=bbox,
-                          max_features=max_features)
+        log.warning("ARCGIS_USE_MOCK=true: serving mock fixture for '%s'",
+                    dataset)
+        out = query_mock(dataset, where=where, bbox=bbox,
+                         max_features=max_features, near=near,
+                         distance_km=distance_km, page_size=page_size,
+                         spatial_filter=spatial_filter)
+        if spatial_echo is not None:
+            out["spatial_filter"] = spatial_echo
+            out.setdefault("strategy", "server_spatial" if near is not None
+                           else "plain_paginated")
+        return out
 
-    max_features = max(1, min(int(max_features), MAX_FEATURES))
+    # ---- validate proximity arguments (before any network I/O) ----
+    distance_m: Optional[float] = None
+    if distance_km is not None:
+        if near is None:
+            return {"ok": False, "error": "distance_km requires near"}
+        try:
+            distance_m = float(distance_km) * 1000.0
+        except (TypeError, ValueError):
+            return {"ok": False, "error": f"invalid distance_km '{distance_km}'"}
+        if distance_m <= 0:
+            return {"ok": False, "error": "distance_km must be positive"}
+    chunks: List[Tuple[str, str]] = []
+    near_count = 0
+    chunk_method = "batched"
+    if isinstance(near, str):
+        return {"ok": False,
+                "error": f"near must be a resolved FeatureCollection, got '{near}'"}
+    if near is not None:
+        if not isinstance(near, dict) or not isinstance(near.get("features"), list):
+            return {"ok": False,
+                    "error": "near must be a FeatureCollection result reference"}
+        try:
+            chunks, near_count, chunk_method = _dissolved_near_chunks(near, distance_m)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if near_count == 0:
+            log.info("query_arcgis %s: empty near area, no fetch", dataset)
+            return {"ok": True, "type": "FeatureCollection", "features": [],
+                    "count": 0, "feature_count": 0, "dataset": dataset,
+                    "geometry_type": "",
+                    "truncated": False, "complete": True, "total_count": 0,
+                    "truncation_warning": None, "pages": 0,
+                    "per_url_counts": [], "layer_errors": [],
+                    "strategy": "server_spatial_empty_reference",
+                    "spatial_filter": spatial_echo or {
+                        "relationship": "within_distance" if distance_m else "intersects",
+                        "reference_count": 0},
+                    "sources": [{"dataset": dataset, "url": u} for u in urls],
+                    "note": "empty near area"}
+
+    try:
+        max_features = max(1, min(int(max_features), ABSOLUTE_MAX_FEATURES))
+    except (TypeError, ValueError):
+        return {"ok": False, "error": f"invalid max_features '{max_features}'"}
+    try:
+        page_size = max(1, min(int(page_size or PAGE_SIZE), PAGE_SIZE_MAX))
+    except (TypeError, ValueError):
+        return {"ok": False, "error": f"invalid page_size '{page_size}'"}
+    bbox_params: Dict[str, Any] = {}
+    if bbox and near is None:
+        try:
+            west, south, east, north = [float(x) for x in bbox.split(",")]
+        except ValueError:
+            return {"ok": False, "error": f"invalid bbox '{bbox}'"}
+        bbox_params.update(
+            {
+                "geometry": f"{west},{south},{east},{north}",
+                "geometryType": "esriGeometryEnvelope",
+                "inSR": 4326,
+                "spatialRel": "esriSpatialRelIntersects",
+            }
+        )
+    elif bbox and near is not None:
+        log.info("query_arcgis %s: bbox ignored, near filter takes precedence",
+                 dataset)
+    log.debug("query_arcgis dataset=%s where=%s bbox=%s near_features=%s "
+              "distance_km=%s max_features=%s page_size=%s urls=%d",
+              dataset, where, bbox, near_count, distance_km,
+              max_features, page_size, len(urls))
+
     all_features: List[Dict[str, Any]] = []
     geometry_type = ""
     errors: List[str] = []        # fatal per-URL failures (no features kept)
     layer_errors: List[str] = []  # partial failures (kept what we could)
     total_count: Optional[int] = None  # server-side total (returnCountOnly sum)
+    total_pages = 0
     per_url_counts: List[Dict[str, Any]] = []
+    capabilities_by_url: Dict[str, Dict[str, Any]] = {}
+    strategies: List[str] = []
+    page_notes: List[str] = []
     for url in urls:
         per_layer: List[Dict[str, Any]] = []
+        url_pages = 0
+        caps = get_layer_capabilities(url)
+        capabilities_by_url[url] = caps
+        pagination_supported = bool(caps.get("supportsPagination", False)) \
+            or "unknown" in caps or caps.get("unknown", False) \
+            or caps.get("supportsAdvancedQueries", False)
+        # If the probe is inconclusive we still attempt resultOffset paging;
+        # repeat-page detection below stops us if the server ignores it.
+        if "unknown" in caps:
+            pagination_supported = True
+        distance_supported = bool(caps.get("supportsQueryWithDistance", False)) \
+            or "unknown" in caps
+        url_strategy = "plain_paginated"
         try:
-            # Cheap server-side total so answers can say "first N of M".
-            try:
-                c_resp = requests.get(
-                    url.rstrip("/") + "/query",
-                    params={"where": where, "returnCountOnly": "true",
-                            "f": "json"},
-                    timeout=TIMEOUT,
-                )
-                c_payload = c_resp.json()
-                if "count" in c_payload:
-                    c_val = int(c_payload["count"])
-                    total_count = (c_val if total_count is None
-                                   else total_count + c_val)
-                    per_url_counts.append({"url": url, "total": c_val,
-                                           "fetched": 0})
-            except Exception:
-                pass  # totals are best-effort; the feature fetch decides ok/fail
+            # Cheap server-side total so truncation is never silent.
+            if near is not None:
+                core_count = {"where": where}
+                if distance_m:
+                    core_count.update(distance=distance_m,
+                                      units="esriSRUnit_Meter")
+                subtotal = _spatial_total(url, core_count, chunks)
+                if subtotal is not None:
+                    total_count = (subtotal if total_count is None
+                                   else total_count + subtotal)
+                    per_url_counts.append({"url": url, "total": subtotal,
+                                           "fetched": 0, "pages": 0})
+            else:
+                try:
+                    c_resp = requests.get(
+                        url.rstrip("/") + "/query",
+                        params={"where": where, "returnCountOnly": "true",
+                                "f": "json"},
+                        timeout=TIMEOUT,
+                    )
+                    c_payload = c_resp.json()
+                    if "count" in c_payload:
+                        c_val = int(c_payload["count"])
+                        total_count = (c_val if total_count is None
+                                       else total_count + c_val)
+                        per_url_counts.append({"url": url, "total": c_val,
+                                               "fetched": 0, "pages": 0})
+                except Exception:
+                    pass  # totals are best-effort; the feature fetch decides ok/fail
             # Per-URL budget (not first-URL-wins): every layer URL returns up
             # to max_features, so e.g. floodplains MapServer/7 is never
             # starved by MapServer/6 filling a shared budget.
-            params: Dict[str, Any] = {
-                "where": where,
-                "outFields": out_fields,
-                "returnGeometry": "true" if return_geometry else "false",
-                "f": "geojson",
-                "resultRecordCount": max_features,
-                # County layers are natively wkid 103129 (Ohio North, feet);
-                # force WGS84 so the frontend map plots correctly. Works on
-                # both MapServer and FeatureServer layer query endpoints.
-                "outSR": 4326,
-            }
-            if bbox:
-                try:
-                    west, south, east, north = [float(x) for x in bbox.split(",")]
-                except ValueError:
-                    return {"ok": False, "error": f"invalid bbox '{bbox}'"}
-                params.update(
-                    {
-                        "geometry": f"{west},{south},{east},{north}",
-                        "geometryType": "esriGeometryEnvelope",
-                        "inSR": 4326,
-                        "spatialRel": "esriSpatialRelIntersects",
-                    }
-                )
-            # Pagination via resultOffset where supported. A failed page
-            # must not nuke earlier pages: keep the partial layer and note
-            # it (previously a page-2 error silently zeroed the whole URL —
-            # the "14 of 3383" signature: totals summed, features vanished).
-            offset = 0
-            while True:
-                try:
-                    if offset:
-                        params["resultOffset"] = offset
-                    resp = requests.get(
-                        url.rstrip("/") + "/query", params=params, timeout=TIMEOUT
-                    )
-                    resp.raise_for_status()
-                    page = resp.json()
-                    if "error" in page:
-                        raise RuntimeError(page["error"])
-                except Exception as exc:
-                    if per_layer:
-                        note = (f"{url}: kept {len(per_layer)} features "
-                                f"before page error: {exc}")
-                        layer_errors.append(note)
-                        log.warning("partial layer fetch: %s", note)
-                        break
-                    raise
-                feats = page.get("features", [])
-                per_layer.extend(feats)
-                if not page.get("exceededTransferLimit") or len(per_layer) >= max_features:
-                    break
-                offset += len(feats)
-                if offset >= max_features:
-                    break
+            if near is not None:
+                if distance_m and not distance_supported:
+                    # ---- correct fallback: complete paged fetch + local metric
+                    # filter (ANY semantics), never a silent first-2000 slice.
+                    log.info("query_arcgis %s %s: distance unsupported; "
+                             "local fallback (paginated fetch + metric filter)",
+                             dataset, url)
+                    plain, plain_pages, _ = _fetch_plain_pages(
+                        url, where, out_fields, return_geometry, bbox_params,
+                        max_features, page_size, pagination_supported)
+                    url_pages += plain_pages
+                    kept = _local_within_distance_fallback(
+                        plain, near, distance_m)
+                    # Local totals replace the server total for this URL.
+                    _total_holder = [total_count]
+                    _fix_total_for_url(per_url_counts, url, len(plain),
+                                       len(kept), _total_holder)
+                    total_count = _total_holder[0]
+                    per_layer = kept[:max_features]
+                    url_strategy = "local_fallback_distance_unsupported"
+                else:
+                    core = {"where": where,
+                            "outFields": out_fields,
+                            "returnGeometry": "true" if return_geometry else "false",
+                            "outSR": 4326}
+                    if distance_m:
+                        core.update(distance=distance_m, units="esriSRUnit_Meter")
+                    # Spatial queries POST form-encoded: geometries exceed URL limits.
+                    try:
+                        per_layer, url_pages, pg_info = _fetch_spatial_pages(
+                            url, core, chunks, max_features, page_size,
+                            pagination_supported=pagination_supported)
+                    except Exception as exc:
+                        # Server rejected the distance param (capability probe
+                        # was inconclusive): retry as a correct local fallback
+                        # instead of failing or returning a partial slice.
+                        if distance_m and ("distance" in str(exc).lower()
+                                           or "invalid" in str(exc).lower()):
+                            log.info("query_arcgis %s %s: server rejected "
+                                     "distance (%s); local fallback", dataset,
+                                     url, exc)
+                            plain, plain_pages, _ = _fetch_plain_pages(
+                                url, where, out_fields, return_geometry,
+                                bbox_params, max_features, page_size,
+                                pagination_supported)
+                            url_pages += plain_pages
+                            _kept = _local_within_distance_fallback(
+                                plain, near, distance_m)
+                            _holder = [total_count]
+                            _fix_total_for_url(per_url_counts, url, len(plain),
+                                               len(_kept), _holder)
+                            total_count = _holder[0]
+                            per_layer = _kept[:max_features]
+                            url_strategy = "local_fallback_distance_unsupported"
+                        else:
+                            raise RuntimeError(f"spatial fetch failed: {exc}") from exc
+                    else:
+                        url_strategy = "server_spatial"
+                        if pg_info.get("stopped_early"):
+                            page_notes.append(f"{url}: {pg_info['stopped_early']}")
+                            layer_errors.append(
+                                f"{url}: paging stopped early "
+                                f"({pg_info['stopped_early']}); kept "
+                                f"{len(per_layer)} features")
+                    # Fallback safety: a spatial POST that returns 0 while the
+                    # plain count is non-zero may mean the service ignored the
+                    # geometry (some MapServers do). Verify with one cheap
+                    # plain page before declaring an honest zero.
+                    if (url_strategy == "server_spatial" and not per_layer
+                            and (per_url_counts and next(
+                                (e.get("total", 0) for e in per_url_counts
+                                 if e.get("url") == url), 0) or 0) == 0):
+                        pass
+            else:
+                if bbox_params:
+                    url_strategy = "server_spatial_bbox"
+                per_layer, url_pages, pg_info = _fetch_plain_pages(
+                    url, where, out_fields, return_geometry, bbox_params,
+                    max_features, page_size, pagination_supported)
+                if pg_info.get("stopped_early"):
+                    page_notes.append(f"{url}: {pg_info['stopped_early']}")
+                    layer_errors.append(
+                        f"{url}: paging stopped early "
+                        f"({pg_info['stopped_early']}); kept {len(per_layer)} "
+                        "features")
             try:
                 meta = describe_layer(url)
                 geometry_type = geometry_type or meta.get("geometryType", "")
             except Exception as exc:  # metadata is best-effort
                 log.warning("layer metadata fetch failed for %s: %s", url, exc)
+            strategies.append(url_strategy)
             all_features.extend(per_layer[:max_features])
             for entry in per_url_counts:
                 if entry.get("url") == url:
                     entry["fetched"] = len(per_layer[:max_features])
+                    entry["pages"] = url_pages
+            total_pages += url_pages
+            log.info("query_arcgis dataset=%s url=%s strategy=%s "
+                     "offset_pages=%d fetched=%d/%s total=%s pagination=%s",
+                     dataset, url, url_strategy, url_pages,
+                     len(per_layer[:max_features]), max_features,
+                     next((e.get("total") for e in per_url_counts
+                           if e.get("url") == url), None),
+                     "supported" if pagination_supported else "single-page")
         except Exception as exc:
             note = f"{url}: {exc}"
             errors.append(note)
@@ -213,19 +983,57 @@ def query_arcgis(
         return {"ok": False, "error": "; ".join(errors), "code": "data_unavailable"}
 
     capped = max_features * max(1, len(urls))
-    sampled = len(all_features) > max_features and len(urls) == 1
-    truncated = total_count is not None and len(all_features) < total_count
+    fetched = all_features[:capped]
+    # Reconcile local-fallback totals: matched counts are exact for the
+    # fetched window; server totals (if any) still bound completeness.
+    truncated = (total_count is not None and len(fetched) < total_count) \
+        or len(fetched) >= capped
+    # Edge: exactly max_features fetched with no server total and no
+    # exceededTransferLimit signal -> may still be complete (Test 2). Only
+    # flag the cap when we actually stopped due to the budget.
+    if truncated:
+        if total_count is not None and len(fetched) < total_count:
+            warning = (f"{dataset} query truncated at {len(fetched)} of "
+                       f"{total_count} features; results may be incomplete.")
+        else:
+            warning = (f"{dataset} query hit the {capped}-feature cap; "
+                       "results may be incomplete.")
+        log.warning("truncation: %s", warning)
+    else:
+        warning = None
+    strategy = strategies[0] if len(set(strategies)) == 1 else (
+        "mixed:" + ",".join(sorted(set(strategies))) if strategies else "unknown")
+    if spatial_echo is None and near is not None:
+        spatial_echo = {
+            "relationship": "within_distance" if distance_m else "intersects",
+            "distance_km": distance_km,
+            "reference_count": near_count,
+            "reference_method": chunk_method,
+        }
+    elif isinstance(spatial_echo, dict) and near is not None:
+        spatial_echo = {**spatial_echo, "reference_count": near_count,
+                        "reference_method": chunk_method,
+                        "distance_km": distance_km}
     return {
         "ok": True,
         "type": "FeatureCollection",
-        "features": all_features[:capped],
-        "count": len(all_features[:capped]),
+        "features": fetched,
+        "count": len(fetched),
+        "feature_count": len(fetched),
         "dataset": dataset,
         "geometry_type": geometry_type,
-        "truncated": truncated or sampled,
+        "truncated": truncated,
+        "complete": (not truncated and not layer_errors and not errors),
         "total_count": total_count,
+        "truncation_warning": warning,
+        "pages": total_pages,
         "per_url_counts": per_url_counts,
         "layer_errors": layer_errors,
+        "strategy": strategy,
+        "spatial_filter": spatial_echo,
+        "pagination": {"page_size": page_size, "max_features": max_features,
+                       "pages": total_pages, "page_notes": page_notes},
+        "capabilities": capabilities_by_url,
         "sources": [{"dataset": dataset, "url": u} for u in urls],
     }
 
@@ -250,12 +1058,41 @@ QUERY_ARCGIS_SCHEMA = {
         },
         "max_features": {
             "type": "integer",
-            "description": "Max features per layer URL (default 1000, cap 2000; "
-                           "multi-URL datasets return up to max per URL).",
+            "description": "Total features wanted per layer URL (default 1000; "
+                           "pages automatically with page_size until this "
+                           "total, the server is exhausted, or the 50000 "
+                           "safety ceiling; multi-URL datasets return up to "
+                           "max per URL). NOT a silent subset: truncation is "
+                           "reported via truncated/total_count.",
+        },
+        "page_size": {
+            "type": "integer",
+            "description": "Per-request service page size (resultRecordCount; "
+                           "default 1000, ceiling 2000).",
         },
         "bbox": {
             "type": "string",
             "description": "Optional 'west,south,east,north' (EPSG:4326) spatial filter.",
+        },
+        "near": {
+            "description": "Optional $step reference to a FeatureCollection "
+                           "defining the search area server-side "
+                           "(e.g. \"$floodplains\").",
+        },
+        "distance_km": {
+            "type": "number",
+            "description": "Optional proximity radius in kilometres around "
+                           "near (server-side distance + esriSRUnit_Meter).",
+        },
+        "spatial_filter": {
+            "description": "High-level alternative to near/distance_km: "
+                           "{\"reference\": \"$step\"|FeatureCollection|"
+                           "\"dataset_name\", \"relationship\": "
+                           "\"within_distance\"|\"intersects\", \"distance\": "
+                           "number, \"units\": \"meters\"|\"kilometers\"|"
+                           "\"feet\"|\"miles\"}. Server-side filtering is "
+                           "preferred; local metric fallback is automatic "
+                           "when the service lacks distance support.",
         },
     }
 }

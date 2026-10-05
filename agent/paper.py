@@ -26,6 +26,9 @@ def _human_step(step: Dict[str, Any]) -> str:
     tool, args = step.get("tool", ""), step.get("arguments", {}) or {}
     if tool == "query_arcgis":
         extra = f" (filter: {args['where']})" if args.get("where") not in (None, "1=1") else ""
+        if args.get("near"):
+            extra += (f" (server-side proximity: within {args.get('distance_km')} km "
+                      f"of `${str(args['near']).lstrip('$')}`)")
         return f"Retrieved {args.get('dataset')}{extra} from its ArcGIS FeatureServer."
     if tool == "query_maumee":
         return (f"Queried Maumee water-quality records "

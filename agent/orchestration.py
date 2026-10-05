@@ -115,7 +115,11 @@ class Orchestrator:
     @staticmethod
     def _summarize(tool: str, output: Dict[str, Any]) -> str:
         if output.get("type") == "FeatureCollection":
-            return f"{output.get('count', 0)} features loaded"
+            note = (f" ({output['count']} of {output['total_count']})"
+                    if output.get("truncated") and output.get("total_count")
+                    else "")
+            truncated = " (truncated)" if output.get("truncated") and not note else ""
+            return f"{output.get('count', 0)} features loaded{note}{truncated}"
         if output.get("type") == "table":
             return f"{output.get('row_count', 0)} rows"
         if output.get("type") == "knowledge":
@@ -133,6 +137,7 @@ class Orchestrator:
         operations: List[str] = []
         table_notes: List[str] = []
         mocked: List[str] = []
+        truncation_warnings: List[str] = []
         ref_counter = 0
         fatal = [e for e in errors]
 
@@ -145,6 +150,9 @@ class Orchestrator:
                 mocked.append(out.get("dataset", step.id))
             if isinstance(out, dict) and out.get("type") == "FeatureCollection":
                 is_final = step.id in ("result",) or step.id == plan.steps[-1].id
+                warning = out.get("truncation_warning")
+                if warning and warning not in truncation_warnings:
+                    truncation_warnings.append(warning)
                 sample_note = ""
                 if out.get("truncated"):
                     total = out.get("total_count")
@@ -244,6 +252,8 @@ class Orchestrator:
         primary_count = layers[-1]["metadata"]["count"] if layers else None
         status = "completed" if not fatal or layers or table_notes or downloads else "failed"
         explanation = self._explain(plan, layers, table_notes, sources, fatal)
+        if truncation_warnings:
+            explanation += " Warning: " + " ".join(truncation_warnings)
         if mocked:
             explanation += (
                 " Note: "
@@ -276,8 +286,9 @@ class Orchestrator:
                        "tool_calls": tool_calls,
                        "execution_time_ms": execution_ms,
                        "errors": errors,
-                       "table_notes": table_notes,
-                       "mocked_datasets": sorted(set(mocked)),
+                        "table_notes": table_notes,
+                        "mocked_datasets": sorted(set(mocked)),
+                        "truncation_warnings": truncation_warnings,
                        "knowledge_hits": sum(1 for s in sources if s.get("identifier"))},
         )
 

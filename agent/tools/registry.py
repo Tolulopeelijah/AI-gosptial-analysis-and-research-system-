@@ -111,7 +111,14 @@ def build_tool_registry() -> ToolRegistry:
 
     # ---- pre-existing tools (names/behaviour preserved) ----
     reg.register(Tool("query_arcgis", "Retrieve GeoJSON features from a registered "
-                      "ArcGIS FeatureServer dataset (semantic name).",
+                      "ArcGIS FeatureServer dataset (semantic name). Pages "
+                      "automatically (page_size per request; max_features is "
+                      "the total intent, never a silent subset). Supports "
+                      "server-side proximity via near ($step reference) + "
+                      "distance_km or the high-level spatial_filter "
+                      "{reference, relationship, distance, units} "
+                      "(server-side preferred, local metric fallback); "
+                      "truncation always reported.",
                       QUERY_ARCGIS_SCHEMA, query_arcgis,
                       category="data", required=QUERY_ARCGIS_REQUIRED,
                       network=True, input_type="dataset",

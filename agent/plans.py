@@ -36,6 +36,26 @@ class PlanValidationError(ValueError):
     pass
 
 
+def _refs_in(arguments: Dict[str, Any]) -> List[str]:
+    """Every `$step_id` reference used in a step's arguments (incl. lists)."""
+    found: List[str] = []
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            if value.startswith("$") and len(value) > 1 and value[1:] not in found:
+                found.append(value[1:])
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+
+    for arg in arguments.values():
+        walk(arg)
+    return found
+
+
 def validate_plan(
     plan: ExecutionPlan,
     *,
@@ -80,6 +100,20 @@ def validate_plan(
                 raise PlanValidationError(
                     f"step '{step.id}' ({step.tool}) has no input result "
                     "reference and no dependencies"
+                )
+
+        # Every $ref must name a real step and be declared as a dependency,
+        # so execution order guarantees the reference is resolved ($step refs
+        # resolve against earlier results, e.g. query_arcgis "near").
+        for ref in _refs_in(step.arguments):
+            if ref not in by_id:
+                raise PlanValidationError(
+                    f"step '{step.id}' references unknown step '${ref}'"
+                )
+            if ref not in step.depends_on:
+                raise PlanValidationError(
+                    f"step '{step.id}' uses '${ref}' but does not list it "
+                    "in depends_on"
                 )
 
     # Cycle detection (Kahn's algorithm).

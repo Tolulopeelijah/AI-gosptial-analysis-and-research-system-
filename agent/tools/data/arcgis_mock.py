@@ -113,10 +113,22 @@ def describe_mock(dataset: str) -> Dict[str, Any]:
         "field_names": [f["name"] for f in base["fields"]],
         "spatialReference": {"wkid": 4326},
         "capabilities": "Query (mock)",
+        "supportsPagination": True,
+        "supportsQueryWithDistance": MOCK_DISTANCE_SUPPORTED,
+        "supportsAdvancedQueries": True,
+        "maxRecordCount": 2000,
         "provisional_schema": True,
         "mocked": True,
         "live_urls": _live_urls(dataset),
     }
+
+
+# Absolute safety ceiling mirrored from the live tool (tests may raise
+# totals above the historical 2000 default via max_features + paging).
+MOCK_ABSOLUTE_MAX = 50000
+# When True, the mock pretends the server lacks distance support so tests
+# can verify the local-fallback path (mirrors supportsQueryWithDistance).
+MOCK_DISTANCE_SUPPORTED = True
 
 
 def query_mock(
@@ -124,13 +136,69 @@ def query_mock(
     where: str = "1=1",
     bbox: Optional[str] = None,
     max_features: int = 1000,
+    near: Any = None,
+    distance_km: Optional[float] = None,
+    page_size: Optional[int] = None,
+    spatial_filter: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Serve a fixture FeatureCollection honouring bbox + limit.
 
     ``where`` is accepted for interface compatibility; the mock only
     understands ``1=1`` and simple ``OBJECTID = N`` predicates (anything
     else is noted as not applied).
+
+    ``near``/``distance_km`` mirror the live server-side spatial filter:
+    fixtures are filtered locally against the ``near`` FeatureCollection
+    (buffered by ``distance_km`` when given) so mock and live behave alike.
+    ``spatial_filter`` is normalised the same way as live (reference may be
+    a dataset name, $ref string, or FeatureCollection).
+    ``page_size`` pages the filtered list the way the live paged fetch
+    does; the assembled result is identical, only ``pages`` differs.
+    ``max_features`` is the total intent (default 1000, ceiling
+    ``MOCK_ABSOLUTE_MAX``); the historical 2000 default is NOT a hard cap.
+    When ``MOCK_DISTANCE_SUPPORTED`` is False and a distance is requested,
+    the mock records ``strategy: local_fallback_distance_unsupported`` to
+    exercise the fallback branch explicitly.
     """
+    # Normalise high-level spatial_filter (same mapping as live).
+    spatial_echo = None
+    if spatial_filter is not None:
+        if not isinstance(spatial_filter, dict):
+            return {"ok": False, "error": "spatial_filter must be an object"}
+        ref = spatial_filter.get("reference", spatial_filter.get("reference_dataset"))
+        rel = (spatial_filter.get("relationship") or "within_distance").lower()
+        if rel not in ("within_distance", "intersects"):
+            return {"ok": False, "error": f"unknown spatial relationship '{rel}'"}
+        dist, units = spatial_filter.get("distance"), (
+            spatial_filter.get("units") or "meters").lower()
+        dist_km = None
+        if rel == "within_distance":
+            if dist is None:
+                return {"ok": False, "error": "spatial_filter needs 'distance'"}
+            factors = {"meters": 1.0, "kilometers": 1000.0, "km": 1000.0,
+                       "feet": 0.3048, "miles": 1609.344, "m": 1.0,
+                       "mi": 1609.344, "ft": 0.3048}
+            if units not in factors:
+                return {"ok": False, "error": f"unknown units '{units}'"}
+            dist_km = float(dist) * factors[units] / 1000.0
+        spatial_echo = {"relationship": rel, "distance": dist, "units": units,
+                        "reference": ref if isinstance(ref, str) else "FeatureCollection"}
+        if near is None:
+            if isinstance(ref, str) and not ref.startswith("$"):
+                # dataset-name reference: resolve from fixtures (paginated).
+                other = query_mock(ref, max_features=MOCK_ABSOLUTE_MAX)
+                if not other.get("ok"):
+                    return {"ok": False,
+                            "error": f"reference dataset '{ref}' failed: "
+                                     f"{other.get('error')}"}
+                near = {"type": "FeatureCollection", "crs": "EPSG:4326",
+                        "features": other["features"]}
+            else:
+                near = ref
+        if distance_km is None:
+            distance_km = dist_km
+        if rel == "intersects":
+            distance_km = None
     if dataset == "septic_systems":
         feats = septic_fixture()
         geometry_type = "esriGeometryPoint"
@@ -171,13 +239,72 @@ def query_mock(
                 kept.append(f)
         feats = kept
 
-    max_features = max(1, min(int(max_features), 2000))
-    feats = feats[:max_features]
+    try:
+        max_features = max(1, min(int(max_features), MOCK_ABSOLUTE_MAX))
+    except (TypeError, ValueError):
+        return {"ok": False, "error": f"invalid max_features '{max_features}'"}
+    total = len(feats)
+    strategy = "plain_paginated"
+
+    # Server-side spatial filter (mirrors live `near`/`distance_km`).
+    if isinstance(near, str):
+        return {"ok": False,
+                "error": f"near must be a resolved FeatureCollection, got '{near}'"}
+    if near is not None:
+        from ..gis.operations import buffer as _buffer, intersect as _intersect
+
+        search_area = near if isinstance(near, dict) else {"features": []}
+        if distance_km is not None:
+            try:
+                distance_km = float(distance_km)
+            except (TypeError, ValueError):
+                return {"ok": False,
+                        "error": f"invalid distance_km '{distance_km}'"}
+            if distance_km <= 0:
+                return {"ok": False, "error": "distance_km must be positive"}
+            search_area = _buffer(search_area, distance_km, unit="kilometers")
+            if not search_area.get("ok", True):
+                return {"ok": False,
+                        "error": search_area.get("error", "buffer failed")}
+        if not search_area.get("features"):
+            feats = []
+        else:
+            filtered = _intersect(
+                {"type": "FeatureCollection", "crs": "EPSG:4326",
+                 "features": feats},
+                search_area)
+            feats = filtered.get("features", [])
+        total = len(feats)
+
+    # Paged assembly (mirrors the live resultOffset loop, with page-size cap).
+    try:
+        page_size = max(1, min(int(page_size or 1000), 2000))
+    except (TypeError, ValueError):
+        return {"ok": False, "error": f"invalid page_size '{page_size}'"}
+    if near is not None and distance_km is not None and not MOCK_DISTANCE_SUPPORTED:
+        strategy = "local_fallback_distance_unsupported"
+    elif near is not None:
+        strategy = "server_spatial"
+    pages, assembled = 0, []
+    guard = 0
+    while len(assembled) < min(total, max_features):
+        guard += 1
+        if guard > 100:
+            break
+        assembled.extend(feats[len(assembled):len(assembled) + page_size])
+        pages += 1
+        if pages > 1 and not assembled[-1:]:
+            break
+    feats = assembled[:max_features]
+    truncated = total > len(feats)
+    warning = (f"{dataset} query truncated at {len(feats)} of {total} "
+               "features; results may be incomplete." if truncated else None)
     return {
         "ok": True,
         "type": "FeatureCollection",
         "features": feats,
         "count": len(feats),
+        "feature_count": len(feats),
         "dataset": dataset,
         "geometry_type": geometry_type,
         "crs": "EPSG:4326",
@@ -185,4 +312,13 @@ def query_mock(
         "provisional_schema": True,
         "live_urls": _live_urls(dataset),
         "note": MOCK_NOTE + (f" {where_note}" if where_note else ""),
+        "truncated": truncated,
+        "complete": not truncated,
+        "total_count": total,
+        "truncation_warning": warning,
+        "pages": pages,
+        "strategy": strategy,
+        "spatial_filter": spatial_echo,
+        "pagination": {"page_size": page_size, "max_features": max_features,
+                       "pages": pages},
     }

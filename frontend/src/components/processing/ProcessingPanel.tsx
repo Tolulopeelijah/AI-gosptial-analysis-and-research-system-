@@ -1,10 +1,17 @@
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/cn'
 import { summarizeSteps } from '@/services/agentSteps'
 import { formatDuration } from '@/lib/format'
 import { useQueryState } from '@/state/QueryProvider'
 import { Panel, StatusBadge } from '@/components/ui/Panel'
 import { Spinner } from '@/components/ui/Button'
-import { AgentIcon, AlertIcon, CheckIcon } from '@/components/ui/Icons'
+import {
+  AgentIcon,
+  AlertIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+} from '@/components/ui/Icons'
 import type { ProcessingStep, StepStatus } from '@/types/agent'
 
 /**
@@ -27,6 +34,13 @@ export function ProcessingPanel() {
     startedAt != null ? (finishedAt ?? Date.now()) - startedAt : undefined
 
   const idle = status === 'idle'
+
+  // Collapsible "tools & steps" dropdown. Auto-expand when a new run starts
+  // so live progress stays visible; the user can collapse it afterwards.
+  const [stepsOpen, setStepsOpen] = useState(true)
+  useEffect(() => {
+    if (isRunning && steps.length > 0) setStepsOpen(true)
+  }, [isRunning, steps.length])
 
   return (
     <Panel
@@ -68,11 +82,28 @@ export function ProcessingPanel() {
             </p>
           ) : null}
 
-          <ol className="space-y-px">
-            {steps.map((step) => (
-              <StepRow key={step.id} step={step} />
-            ))}
-          </ol>
+          <div>
+            <button
+              type="button"
+              onClick={() => setStepsOpen((open) => !open)}
+              aria-expanded={stepsOpen}
+              aria-controls="processing-steps-list"
+              className="flex w-full items-center gap-1.5 rounded-[3px] px-1 py-1 text-left text-[11px] font-medium text-ink-2 hover:bg-panel-muted"
+            >
+              {stepsOpen ? <ChevronDownIcon size={13} /> : <ChevronRightIcon size={13} />}
+              <span>
+                Tools &amp; steps ({summary.done}/{summary.total})
+              </span>
+            </button>
+
+            {stepsOpen ? (
+              <ol id="processing-steps-list" className="mt-1 space-y-px">
+                {steps.map((step) => (
+                  <StepRow key={step.id} step={step} />
+                ))}
+              </ol>
+            ) : null}
+          </div>
 
           {steps.length === 0 && isRunning ? (
             <p className="text-[12px] text-ink-3">Waiting for the first event…</p>
@@ -149,7 +180,7 @@ function StepRow({ step }: { step: ProcessingStep }) {
           <p className="mt-0.5 text-[11px] leading-snug text-ink-3">{step.detail}</p>
         ) : null}
 
-        {step.tool && step.status === 'active' ? (
+        {step.tool ? (
           <p className="mt-0.5 font-mono text-[10px] text-ink-3">{step.tool}()</p>
         ) : null}
       </div>

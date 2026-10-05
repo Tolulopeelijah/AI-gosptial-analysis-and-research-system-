@@ -42,7 +42,7 @@
 | `get_dataset_extent` | Spatial (and Maumee temporal) extent of a dataset. | dataset | — | — |
 | `get_dataset_schema` | Field list for a dataset (live ArcGIS discovery). | dataset | — | — |
 | `overpass_query` | Run raw Overpass QL (advanced). | ql | yes | — |
-| `query_arcgis` | Retrieve GeoJSON features from a registered ArcGIS FeatureServer dataset (semantic name). | dataset | yes | — |
+| `query_arcgis` | Retrieve GeoJSON features from a registered ArcGIS FeatureServer dataset (semantic name). Pages automatically (page_size per request; max_features is the total intent, never a silent subset). Supports server-side proximity via near ($step reference) + distance_km or the high-level spatial_filter {reference, relationship, distance, units} (server-side preferred, local metric fallback); truncation always reported. | dataset | yes | — |
 | `query_maumee` | Query the local NCWQR Maumee XLSX: records, summaries, extremes, daily means, or schema. Tabular only. | — | — | — |
 | `query_osm_buildings` | OpenStreetMap building footprints + bbox. | bbox | yes | — |
 | `query_osm_landuse` | OpenStreetMap landuse polygons + bbox. | bbox | yes | — |

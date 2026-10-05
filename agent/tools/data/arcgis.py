@@ -1165,29 +1165,28 @@ def query_arcgis(
                     "caps": caps, "pagination_supported": False,
                     "layer_notes": [], "page_notes": []}
 
-    def _probe_one_row(url: str) -> bool:
-        """True if the layer yields at least one row (trust-but-verify zero).
-
-        Single cheap request with the same filters. Used only when a full
-        attempt came back empty with total==0, to distinguish an honestly
-        empty result from a county-side flake.
-        """
+    def _probe_variant(record_count: int, with_geometry: bool) -> bool:
+        """One minimal probe request; False on any failure/empty."""
         try:
             if near is not None and chunks:
-                core = {"where": where, "outFields": "OBJECTID",
-                        "returnGeometry": "false", "outSR": 4326}
+                core = {"where": where,
+                        "outFields": out_fields if with_geometry else "OBJECTID",
+                        "returnGeometry": "true" if with_geometry else "false",
+                        "outSR": 4326}
                 if distance_m:
                     core.update(distance=distance_m, units="esriSRUnit_Meter")
                 geom, kind = chunks[0]
                 page = _post_query(url, dict(
                     core, geometry=geom, geometryType=kind, inSR=4326,
                     spatialRel="esriSpatialRelIntersects", f="geojson",
-                    resultRecordCount=1))
+                    resultRecordCount=record_count))
                 feats, _ = _features_of_page(page, url, "verify probe")
                 return bool(feats)
-            params = {"where": where, "outFields": "OBJECTID",
-                      "returnGeometry": "false", "f": "geojson",
-                      "resultRecordCount": 1, "outSR": 4326}
+            params = {"where": where,
+                      "outFields": out_fields if with_geometry else "OBJECTID",
+                      "returnGeometry": "true" if with_geometry else "false",
+                      "f": "geojson", "resultRecordCount": record_count,
+                      "outSR": 4326}
             params.update(bbox_params)
             resp = requests.get(url.rstrip("/") + "/query", params=params,
                                 timeout=TIMEOUT)
@@ -1198,6 +1197,23 @@ def query_arcgis(
             log.info("query_arcgis %s %s: verify probe failed: %s",
                      dataset, url, exc)
             return False
+
+    def _probe_one_row(url: str) -> Tuple[bool, str]:
+        """Trust-but-verify zero + record-count/geometry failure matrix.
+
+        Returns (found_anything, detail). When the light probe hits, two
+        more tiny probes isolate the failing axis: geometry on
+        (``geom1``) and a larger page (``many100``). The detail string is
+        surfaced in layer notes so remote diagnosis is possible.
+        """
+        _ = url
+        light = _probe_variant(1, False)
+        detail = f"light1(hit)={int(light)}"
+        if light:
+            geom1 = _probe_variant(1, True)
+            many100 = _probe_variant(100, False)
+            detail += f" geom1={int(geom1)} many100={int(many100)}"
+        return light, detail
 
     def _attempt_with_retry(url: str) -> Dict[str, Any]:
         """One conditional retry for flaky empty results.
@@ -1231,7 +1247,10 @@ def query_arcgis(
                     "(possible service flake)")
             return res
         if (not res.get("fatal") and not res.get("features")
-                and expected == 0 and _probe_one_row(url)):
+                and expected == 0):
+            found, detail = _probe_one_row(url)
+            if not found:
+                return res
             log.info("query_arcgis %s %s: zero total contradicted by probe; "
                      "retrying once", dataset, url)
             time.sleep(2.0)
@@ -1240,7 +1259,8 @@ def query_arcgis(
                 return retry
             res["layer_notes"].append(
                 f"{url}: server reported 0 but a one-row probe found data "
-                "(possible service flake); narrow with a bbox and retry")
+                f"[{detail}] (possible service flake); "
+                "narrow with a bbox and retry")
         return res
 
     all_features: List[Dict[str, Any]] = []

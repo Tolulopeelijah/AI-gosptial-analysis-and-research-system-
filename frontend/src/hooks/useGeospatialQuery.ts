@@ -152,6 +152,12 @@ function reducer(state: QueryRun, action: Action): QueryRun {
   }
 }
 
+export interface LayerSummary {
+  title: string
+  count: number
+  dataset?: string
+}
+
 export interface SubmitOutcome {
   queryId: string
   status: QueryHistoryStatus
@@ -162,6 +168,8 @@ export interface SubmitOutcome {
   errorCode?: GeoQueryError['code']
   references?: QueryResponse['references']
   tables?: TableResult[]
+  /** Per-layer counts for inline display (e.g. under a chat answer). */
+  layers?: LayerSummary[]
 }
 
 export interface UseGeospatialQueryResult {
@@ -233,6 +241,11 @@ export function useGeospatialQuery(options: UseGeospatialQueryOptions = {}): Use
           errorCode: response.error?.code,
           references: response.references,
           tables: response.tables,
+          layers: response.results?.map((result) => ({
+            title: result.metadata?.title ?? result.id,
+            count: result.metadata?.count ?? 0,
+            dataset: result.metadata?.dataset,
+          })),
         })
       })
       .catch((error: unknown) => {

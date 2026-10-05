@@ -3,8 +3,8 @@ import type { KeyboardEvent } from 'react'
 import { useQueryState } from '@/state/QueryProvider'
 import { useMapState } from '@/state/MapProvider'
 import { Panel } from '@/components/ui/Panel'
-import { Button } from '@/components/ui/Button'
-import { AgentIcon, SearchIcon, XIcon } from '@/components/ui/Icons'
+import { Button, IconButton } from '@/components/ui/Button'
+import { AgentIcon, SearchIcon, UploadIcon, XIcon } from '@/components/ui/Icons'
 import { MapContextChip } from './MapContextChip'
 
 const MAX_LENGTH = 500
@@ -20,7 +20,8 @@ const MAX_LENGTH = 500
  * `MapContextChip`), which is the same seam a future drawn polygon would use.
  */
 export function QueryPanel() {
-  const { draft, setDraft, fillDraft, focusRequest, mode, aims, query } = useQueryState()
+  const { draft, setDraft, fillDraft, focusRequest, requestUpload, mode, aims, query } =
+    useQueryState()
   const { run, isRunning, submit, cancel } = query
   const { getBounds, getCenter, getZoom } = useMapState()
 
@@ -107,6 +108,14 @@ export function QueryPanel() {
           </span>
 
           <div className="flex shrink-0 items-center gap-1.5">
+            <IconButton
+              label="Upload a dataset"
+              variant="default"
+              onClick={requestUpload}
+              title="Upload a dataset (CSV, GeoJSON, XLSX)"
+            >
+              <UploadIcon size={13} />
+            </IconButton>
             {isRunning ? (
               <Button size="sm" variant="default" icon={<XIcon size={13} />} onClick={cancel}>
                 Cancel

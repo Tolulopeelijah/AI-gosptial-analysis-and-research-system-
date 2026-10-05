@@ -14,6 +14,7 @@ import { AttributeTable } from './AttributeTable'
 import { AttributeDistribution } from './AttributeDistribution'
 import { LayerList } from './LayerList'
 import { ReferencesList } from './ReferencesList'
+import { RichText } from './RichText'
 import { TablesSection } from './TablesSection'
 import type { GeographicResult, KnowledgeReference } from '@/types/geospatial'
 
@@ -57,7 +58,7 @@ export function ResultsPanel() {
 
   if (run.status === 'failed' && run.error) {
     return (
-      <Panel title="Results" icon={<TargetIcon size={14} />} className="shrink-0">
+      <Panel title="Results" icon={<TargetIcon size={14} />} className="shrink-0" collapsible>
         <ErrorNotice error={run.error} query={run.query} />
       </Panel>
     )
@@ -70,6 +71,7 @@ export function ResultsPanel() {
         icon={<TargetIcon size={14} />}
         className="shrink-0"
         actions={<span className="text-[10px] text-ink-3">waiting for a query</span>}
+        collapsible
       >
         <p className="text-[12px] leading-relaxed text-ink-3">
           Figures, the agent's explanation, and the attribute table for the returned features
@@ -86,6 +88,7 @@ export function ResultsPanel() {
         icon={<TargetIcon size={14} />}
         className="shrink-0"
         actions={<StatusBadge tone="accent" dot>running</StatusBadge>}
+        collapsible
       >
         <p className="text-[12px] leading-relaxed text-ink-3">
           {truncate(run.query, 90)} — results are drawn as each layer arrives.
@@ -108,6 +111,7 @@ export function ResultsPanel() {
           icon={<TargetIcon size={14} />}
           className="shrink-0"
           actions={<StatusBadge tone="warning">0 features</StatusBadge>}
+          collapsible
         >
           <div className="border border-warning/45 bg-warning/8 px-3 py-2.5">
             <h3 className="text-[13px] font-semibold text-ink">The query ran, but matched nothing</h3>
@@ -129,9 +133,10 @@ export function ResultsPanel() {
         icon={<TargetIcon size={14} />}
         className="shrink-0"
         actions={<StatusBadge tone="good">complete</StatusBadge>}
+        collapsible
       >
         <div className="space-y-2.5">
-          <ExplanationBlock text={run.explanation} />
+          <ExplanationBlock text={run.explanation} references={references} />
           <ReferencesBlock references={references} />
           <TablesSection embedded />
         </div>
@@ -151,6 +156,7 @@ export function ResultsPanel() {
       title="Results"
       icon={<TargetIcon size={14} />}
       className="shrink-0"
+      collapsible
       actions={
         <>
           <StatusBadge tone="good">complete</StatusBadge>
@@ -197,7 +203,7 @@ export function ResultsPanel() {
           />
         </div>
 
-        <ExplanationBlock text={run.explanation} />
+        <ExplanationBlock text={run.explanation} references={run.references} />
         <ReferencesBlock references={run.references} />
 
         {primaryLayers.length > 1 ? (
@@ -291,19 +297,27 @@ function EmptyTabNote({ children }: { children: ReactNode }) {
 }
 
 /** The agent's write-up, shared by the layer and table/knowledge branches. */
-function ExplanationBlock({ text }: { text?: string }) {
+function ExplanationBlock({
+  text,
+  references,
+}: {
+  text?: string
+  references?: KnowledgeReference[]
+}) {
   if (!text) return null
   return (
     <div className="border-l-2 border-accent/50 bg-accent-soft/22 px-3 py-2">
       <div className="text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-3">
         Agent's explanation
       </div>
-      <p className="mt-0.5 text-[12px] leading-relaxed text-ink-2">{text}</p>
+      <p className="mt-0.5 whitespace-pre-line text-[12px] leading-relaxed text-ink-2">
+        <RichText text={text} references={references} idPrefix="answer" />
+      </p>
     </div>
   )
 }
 
 /** Numbered knowledge references with links, matching inline [S#] markers. */
 function ReferencesBlock({ references }: { references?: KnowledgeReference[] }) {
-  return <ReferencesList references={references} />
+  return <ReferencesList references={references} idPrefix="answer" />
 }

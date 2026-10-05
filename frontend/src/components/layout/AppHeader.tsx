@@ -6,7 +6,6 @@ import { HelpIcon } from '@/components/ui/Icons'
 import { StatusIndicator } from './StatusIndicator'
 import { SettingsPopover } from './SettingsPopover'
 import { HelpDialog } from './HelpDialog'
-import { HistoryDrawer } from '@/components/history/HistoryDrawer'
 
 /**
  * Application header.
@@ -25,7 +24,6 @@ export function AppHeader() {
       />
       <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-line bg-panel px-3">
       <div className="flex min-w-0 items-center gap-2.5">
-        <HistoryDrawer />
         <span
           className="flex size-6 shrink-0 items-center justify-center rounded-[3px] bg-ink text-panel"
           aria-hidden="true"

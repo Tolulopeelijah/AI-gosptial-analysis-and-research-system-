@@ -392,11 +392,11 @@ class Orchestrator:
     @classmethod
     def _explain(cls, plan, layers, tables, table_notes, sources, errors,
                  mocked=None, truncation_warnings=None) -> str:
-        """Natural-language summary of what was found.
+        """Professional, plain-language summary of the results.
 
-        Technical diagnostics (per-URL counts, raw service errors, step ids)
-        stay in ``execution`` / layer ``metadata.diagnostics`` — the
-        explanation is what a person would say in chat.
+        Written for a non-technical audience: no service URLs, step ids,
+        or debug dumps. Technical diagnostics (per-URL counts, raw service
+        errors) stay in ``execution`` / layer ``metadata.diagnostics``.
         """
         mocked = mocked or []
         truncation_warnings = truncation_warnings or []
@@ -407,157 +407,198 @@ class Orchestrator:
 
         # ---- GIS layers ----
         if layers:
-            primary = layers[-1]["metadata"]
-            context = [l["metadata"] for l in layers[:-1]]
-            primary_n = primary.get("count", 0)
-            derived = not primary.get("dataset")
-            # "Sample"/"Result" step titles mean nothing to users — describe
-            # what the layer actually is instead.
-            if not derived:
-                what = cls._pretty_dataset(primary.get("dataset", ""))
-                what_n = cls._pretty_dataset_n(
-                    primary_n, primary.get("dataset", ""))
-            elif context:
-                what = cls._pretty_dataset(context[-1].get("dataset", ""))
-                what_n = (f"{primary_n} matching feature" if primary_n == 1
-                          else f"{primary_n} matching features")
-            else:
-                what = "matching features"
-                what_n = (f"{primary_n} matching feature" if primary_n == 1
-                          else f"{primary_n} matching features")
-
-            if primary_n == 0:
-                if context:
-                    bits = [
-                        cls._pretty_dataset_n(
-                            c.get("count", 0), c.get("dataset", ""))
-                        for c in context]
+            # Independent fetches (no sample/result/spatial filter in the
+            # plan, e.g. "show septic systems" which loads both layers for
+            # the map): report every layer equally instead of crowning the
+            # last one as the answer.
+            steps = getattr(plan, "steps", []) or []
+            spatial_signal = any(
+                (s.id in ("sample", "result"))
+                or ((s.arguments or {}).get("near")
+                    or (s.arguments or {}).get("spatial_filter"))
+                for s in steps)
+            if not spatial_signal and len(layers) > 1:
+                bits = [
+                    cls._pretty_dataset_n(
+                        (l["metadata"] or {}).get("count", 0),
+                        (l["metadata"] or {}).get("dataset", ""))
+                    for l in layers]
+                sentences.append(
+                    f"The analysis found {' and '.join(bits)}. "
+                    f"The results are displayed on the map.")
+                all_meta = [l["metadata"] for l in layers]
+                if any(m.get("sampled") for m in all_meta):
                     sentences.append(
-                        f"I checked {' and '.join(bits)} but didn't find "
-                        f"any {what} matching your search.")
+                        "These are sample results. Please specify "
+                        "a smaller area to view additional records.")
+                elif any(m.get("partial") for m in all_meta):
+                    sentences.append(
+                        "Note: a portion of the map data could not be "
+                        "loaded, so additional records may exist.")
+            else:
+                primary = layers[-1]["metadata"]
+                context = [l["metadata"] for l in layers[:-1]]
+                primary_n = primary.get("count", 0)
+                derived = not primary.get("dataset")
+                # "Sample"/"Result" step titles mean nothing to users —
+                # describe what the layer actually is instead.
+                if not derived:
+                    what = cls._pretty_dataset(primary.get("dataset", ""))
+                    what_n = cls._pretty_dataset_n(
+                        primary_n, primary.get("dataset", ""))
+                elif context:
+                    what = cls._pretty_dataset(context[-1].get("dataset", ""))
+                    what_n = (f"{primary_n} matching feature" if primary_n == 1
+                              else f"{primary_n} matching features")
                 else:
-                    sentences.append(
-                        f"I didn't find any {what} matching your search.")
-                # Sampled-zero is "no overlap in the sample", not proof of
-                # zero county-wide.
-                if primary.get("sampled") or any(
-                        c.get("sampled") for c in context):
-                    sentences.append(
-                        "That's based on the sample I could load — "
-                        "try narrowing with a place name or map area "
-                        "for a full check.")
-                elif primary.get("partial") or any(
-                        c.get("partial") for c in context):
-                    sentences.append(
-                        "One of the map layers only partly loaded, "
-                        "so it's worth trying again or zooming in.")
-            else:
-                if derived:
-                    sentences.append(
-                        f"I found {what_n} — "
-                        f"{'it is' if primary_n == 1 else 'they are'} "
-                        f"shown on the map.")
+                    what = "matching features"
+                    what_n = (f"{primary_n} matching feature" if primary_n == 1
+                              else f"{primary_n} matching features")
+
+                if primary_n == 0:
                     if context:
                         bits = [
                             cls._pretty_dataset_n(
                                 c.get("count", 0), c.get("dataset", ""))
                             for c in context]
                         sentences.append(
-                            f"I checked {' and '.join(bits)} to get there.")
+                            f"No {what} matching the search criteria were found "
+                            f"after reviewing {' and '.join(bits)}.")
+                    else:
+                        sentences.append(
+                            f"No {what} matching the search criteria were found.")
+                    # Sampled-zero is "no overlap in the sample", not proof
+                    # of zero county-wide.
+                    if primary.get("sampled") or any(
+                            c.get("sampled") for c in context):
+                        sentences.append(
+                            "This reflects the portion of data available for "
+                            "review. Please specify a place name or map area "
+                            "for a more complete assessment.")
+                    elif primary.get("partial") or any(
+                            c.get("partial") for c in context):
+                        sentences.append(
+                            "A portion of the map data could not be loaded. "
+                            "Please try again or refine the search "
+                            "to a smaller area.")
                 else:
                     sentences.append(
-                        f"I found {what_n} — "
-                        f"{'it is' if primary_n == 1 else 'they are'} "
-                        f"shown on the map.")
-                    others = [c for c in context
-                              if c.get("dataset") != primary.get("dataset")]
+                        f"The analysis found {what_n}. "
+                        f"The results are displayed on the map.")
+                    others = ([c for c in context] if derived else
+                              [c for c in context
+                               if c.get("dataset") != primary.get("dataset")])
                     if others:
                         bits = [
                             cls._pretty_dataset_n(
                                 c.get("count", 0), c.get("dataset", ""))
                             for c in others]
                         sentences.append(
-                            f"I searched against {' and '.join(bits)}.")
-                if primary.get("sampled"):
-                    total = primary.get("total_count")
-                    if total:
+                            f"The search reviewed {' and '.join(bits)}.")
+                    if primary.get("sampled"):
+                        total = primary.get("total_count")
+                        if total:
+                            sentences.append(
+                                f"This represents the first {primary_n} of "
+                                f"approximately {total} records. Please specify "
+                                f"a smaller area to view additional records.")
+                        else:
+                            sentences.append(
+                                "These are sample results. Please specify "
+                                "a smaller area to view additional records.")
+                    elif primary.get("partial"):
                         sentences.append(
-                            f"That's the first {primary_n} of about "
-                            f"{total} — zoom in or ask for a specific area "
-                            f"to see more.")
-                    else:
-                        sentences.append(
-                            "That's a sample of what's available — "
-                            "ask for a specific area to see more.")
-                elif primary.get("partial"):
-                    sentences.append(
-                        "Heads up: part of the layer had trouble loading, "
-                        "so there may be more out there.")
+                            "Note: a portion of the layer could not be loaded, "
+                            "so additional records may exist.")
         # ---- tables ----
         for t in (tables or []):
             title = (t.get("title") or "").strip() or "Result"
             rows = t.get("rows", []) or []
             cols = t.get("columns", []) or []
             n = t.get("row_count", len(rows))
+            # A count table already states its headline value in its rows
+            # (metric=count); report that value instead of the row count so
+            # it does not duplicate or contradict the layer sentence above.
+            if ((t.get("id") or "").lower() == "count"
+                    or title.lower() == "count") and rows:
+                total = next(
+                    (r.get("value") for r in rows
+                     if isinstance(r, dict) and r.get("metric") == "count"),
+                    None)
+                if total is not None:
+                    sentences.append(f"The total count is {total}.")
+                    continue
             if n == 0:
-                sentences.append(f"The {title.lower()} table came back empty.")
+                sentences.append(f"The {title.lower()} contains no records.")
             elif n == 1 and rows and isinstance(rows[0], dict):
-                # Quote the single row's key facts conversationally.
+                # Quote the single row's key facts in plain language.
                 facts = ", ".join(
                     f"{k} is {v}" for k, v in list(rows[0].items())[:4])
                 sentences.append(
-                    f"The {title.lower()} table has one row ({facts}).")
+                    f"The {title.lower()} contains one record ({facts}).")
             elif rows and len(cols) <= 8:
                 sentences.append(
-                    f"The {title.lower()} table has {n} "
-                    f"{plural(n, 'row')} — the highlights are below.")
+                    f"The {title.lower()} contains {n} "
+                    f"{plural(n, 'record')}. Key details are provided below.")
             else:
                 sentences.append(
-                    f"I put together a {title.lower()} table with {n} "
-                    f"{plural(n, 'row')} — it's included below.")
-        # Fallback when there are neither layers nor tables (should be rare;
-        # full failure is handled by the caller with status=failed).
+                    f"A {title.lower()} with {n} "
+                    f"{plural(n, 'record')} is included below.")
+        # ---- knowledge references ----
+        # A knowledge-only answer has no layers or tables, but it is still
+        # an answer — say what was found instead of falling through to the
+        # "no results" fallback while references print below.
+        knowledge_hits = [s for s in (sources or [])
+                          if str(s.get("ref", "")).startswith("S")]
+        if knowledge_hits and not layers and not tables:
+            sentences.append(
+                f"The search found {len(knowledge_hits)} "
+                f"{plural(len(knowledge_hits), 'relevant publication')}. "
+                f"Key details are listed in the references below.")
+        elif knowledge_hits:
+            sentences.append(
+                f"The search also reviewed {len(knowledge_hits)} "
+                f"{plural(len(knowledge_hits), 'relevant publication')}, "
+                f"listed in the references below.")
+        # Fallback when there are neither layers, tables, nor references
+        # (full failure is handled by the caller with status=failed).
         if not layers and not tables and not sentences:
             if errors:
                 sentences.append(
-                    "Sorry — I ran into a problem loading that data, "
-                    "so I don't have anything to show yet.")
+                    "The requested data could not be loaded at this time.")
             else:
-                sentences.append("I don't have anything to show for that yet.")
+                sentences.append("No results are available for this request.")
 
-        # ---- honesty notes, in plain words ----
+        # ---- honesty notes, in plain professional language ----
         if mocked:
             what = " and ".join(
                 cls._pretty_dataset(m) for m in sorted(set(mocked)))
             sentences.append(
-                f"A quick heads up: the county map servers were unreachable, "
-                f"so the {what} shown here are demo examples, "
-                f"not official county records.")
+                "Note: the county map servers were unreachable, "
+                f"so the {what} presented are demonstration data, "
+                "not official county records.")
         if truncation_warnings and not any(
                 l["metadata"].get("sampled") for l in layers):
             sentences.append(
-                "I could only load part of the full dataset, "
-                "so try a smaller area for complete results.")
+                "Only part of the full dataset could be loaded. "
+                "Please refine the search to a smaller area "
+                "for complete results.")
 
-        # ---- step errors: plain words, no step ids / raw tracebacks ----
+        # ---- step errors: plain professional language, no step ids ----
+        # Raw service URLs and tracebacks stay in execution metadata.
         recoverable = bool(layers or tables)
         for e in errors or []:
-            msg = str(e.get("error", "") or "").strip()
-            # Raw service URLs and tracebacks never help in chat.
-            short = msg.split(";")[0][:160].rstrip()
             if recoverable:
                 sentences.append(
-                    "One part of the lookup stumbled "
-                    + (f"({short})" if short else "") +
-                    " — what I could load is shown above.")
+                    "Note: one part of the search encountered an issue; "
+                    "the available results are presented above.")
                 break
             sentences.append(
-                "Sorry — I couldn't finish that lookup "
-                + (f"({short})" if short else "") + ". "
-                + "Try again, or narrow it to a smaller area.")
+                "The search could not be completed. Please try again "
+                "or refine the search to a smaller area.")
             break
 
         text = " ".join(s.strip() for s in sentences if s and s.strip())
         # Safety net: never return the old debug-dump style even if a future
         # caller passes something unexpected.
-        return text.strip() or "Here's what I found — see the map and details below."
+        return text.strip() or "The results are presented on the map with details below."

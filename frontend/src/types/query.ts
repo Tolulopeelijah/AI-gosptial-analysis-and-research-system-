@@ -15,6 +15,13 @@ export interface ChatMessage {
   content: string
 }
 
+/** Compact per-layer counts shown under a chat answer. */
+export interface ChatTurnLayer {
+  title: string
+  count: number
+  dataset?: string
+}
+
 /** One conversational turn, kept client-side for the chat thread. */
 export interface ChatTurn {
   query: string
@@ -22,6 +29,8 @@ export interface ChatTurn {
   references?: KnowledgeReference[]
   dataset?: string
   count?: number
+  /** Layer counts for the inline result card below the answer. */
+  layers?: ChatTurnLayer[]
   errorCode?: GeoQueryError['code']
 }
 

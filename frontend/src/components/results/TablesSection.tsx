@@ -41,6 +41,7 @@ export function TablesSection({ embedded = false }: { embedded?: boolean }) {
       title="Data"
       icon={<DatabaseIcon size={14} />}
       className="shrink-0"
+      collapsible
       actions={<span className="text-[10px] text-ink-3">{summary}</span>}
     >
       <TablesContent tables={tables} primaryLayers={primaryLayers} />

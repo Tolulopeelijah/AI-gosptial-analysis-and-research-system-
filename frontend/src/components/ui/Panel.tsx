@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+import { ChevronDownIcon, ChevronRightIcon } from './Icons'
 
 interface PanelProps {
   title?: string
@@ -13,6 +15,10 @@ interface PanelProps {
   flush?: boolean
   /** Allows the body to scroll instead of growing. */
   scroll?: boolean
+  /** Adds a chevron toggle so the whole body can collapse into its header. */
+  collapsible?: boolean
+  /** Initial open state for collapsible panels. */
+  defaultOpen?: boolean
 }
 
 /**
@@ -29,7 +35,11 @@ export function Panel({
   className,
   flush = false,
   scroll = false,
+  collapsible = false,
+  defaultOpen = true,
 }: PanelProps) {
+  const [open, setOpen] = useState(defaultOpen)
+
   return (
     <section
       className={cn(
@@ -38,19 +48,44 @@ export function Panel({
       )}
     >
       {title ? (
-        <header className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
-          <div className="flex min-w-0 items-center gap-1.5">
-            {icon ? <span className="text-ink-3">{icon}</span> : null}
-            <h2 className="truncate text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-2">
-              {title}
-            </h2>
-          </div>
+        <header
+          className={cn(
+            'flex h-9 shrink-0 items-center justify-between gap-2 px-3',
+            open && 'border-b border-line',
+          )}
+        >
+          {collapsible ? (
+            <button
+              type="button"
+              onClick={() => setOpen((value) => !value)}
+              aria-expanded={open}
+              title={open ? `Collapse ${title}` : `Expand ${title}`}
+              className="flex min-w-0 items-center gap-1.5 text-left"
+            >
+              <span className="shrink-0 text-ink-3">
+                {open ? <ChevronDownIcon size={13} /> : <ChevronRightIcon size={13} />}
+              </span>
+              {icon ? <span className="shrink-0 text-ink-3">{icon}</span> : null}
+              <h2 className="truncate text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-2">
+                {title}
+              </h2>
+            </button>
+          ) : (
+            <div className="flex min-w-0 items-center gap-1.5">
+              {icon ? <span className="text-ink-3">{icon}</span> : null}
+              <h2 className="truncate text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-2">
+                {title}
+              </h2>
+            </div>
+          )}
           {actions ? <div className="flex shrink-0 items-center gap-1">{actions}</div> : null}
         </header>
       ) : null}
-      <div className={cn('min-h-0 flex-1', !flush && 'p-3', scroll && 'overflow-y-auto')}>
-        {children}
-      </div>
+      {open ? (
+        <div className={cn('min-h-0 flex-1', !flush && 'p-3', scroll && 'overflow-y-auto')}>
+          {children}
+        </div>
+      ) : null}
     </section>
   )
 }

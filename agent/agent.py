@@ -106,10 +106,10 @@ class GeospatialAgent:
         # Optional LLM-written explanation pass.
         # - knowledge/combined answers always get a grounded rewrite (all
         #   modes except data/spatial);
-        # - pure-GIS answers already have a natural deterministic summary
-        #   from the orchestrator, but chat mode gets a free-language LLM
-        #   polish pass when a model is configured (offline fallback stays
-        #   conversational, so chat never sees the old "Goal: ... [..]" dump).
+        # - pure-GIS answers already have a professional plain-language
+        #   summary from the orchestrator, but chat mode gets an LLM polish
+        #   pass when a model is configured (offline fallback stays
+        #   professional, so chat never sees the old "Goal: ... [..]" dump).
         # Skipped in data mode (raw results for download) and spatial mode
         # (map-first: the map is the answer, not text).
         kind = outcome.get("kind", "gis")
@@ -161,9 +161,9 @@ class GeospatialAgent:
                 mocked = (response.get("execution") or {}).get("mocked_datasets") or []
                 if mocked and "demo" not in response["explanation"].lower():
                     response["explanation"] += (
-                        " (Quick heads up: the county map servers were "
-                        "unreachable, so these are demo examples, "
-                        "not official county records.)"
+                        " Note: the county map servers were unreachable, "
+                        "so the results presented are demonstration data, "
+                        "not official county records."
                     )
             # Grounding enforcement: strip hallucinated citations, record check.
             from .grounding import check_markers, strip_invalid_markers
@@ -245,13 +245,13 @@ class GeospatialAgent:
                                response: Dict[str, Any],
                                history: Optional[List[Dict[str, str]]] = None,
                                ) -> Optional[str]:
-        """Free-language polish for chat-mode GIS answers.
+        """Professional polish for chat-mode GIS answers.
 
         The draft is already factual (deterministic counts from the
-        orchestrator); this pass only makes it sound like a person talking
-        in chat. Numbers, dataset names and honesty notes must be kept —
-        never invented. Returns None offline / on failure so the already
-        natural deterministic draft survives.
+        orchestrator); this pass restates it in a professional,
+        plain-language tone for a non-technical audience. Numbers, dataset
+        names and honesty notes must be kept — never invented. Returns None
+        offline / on failure so the deterministic draft survives.
         """
         from .config import settings
 
@@ -277,8 +277,10 @@ class GeospatialAgent:
             messages = [
                 {"role": "system",
                  "content": (
-                      "Rewrite the draft GIS result as a short, natural chat "
-                      "reply (2-4 sentences, first person, conversational). "
+                      "Restate the draft GIS result in a professional, "
+                      "plain-language tone for a non-technical audience "
+                      "(2-4 sentences, neutral and factual, no slang, "
+                      "no first-person chat). "
                       "The layer marked ANSWER is the result to report; "
                       "context layers were only searched against. "
                       "Keep every number, place/dataset name and honesty note "
@@ -286,11 +288,11 @@ class GeospatialAgent:
                      "Never output debug text: no 'Goal:', no bracketed "
                      "dumps like '[layer trouble: ...]' or '[per-layer ...]', "
                      "no 'Sources: a; b', no step ids, no raw URLs. "
-                     "If the result is empty, say so kindly and suggest "
-                     "narrowing the area. "
-                     "If demo data was used, keep one plain sentence saying "
-                     "the county servers were unreachable so these are demo "
-                     "examples, not official records."
+                     "If the result is empty, state that no matching "
+                     "records were found and suggest refining the area. "
+                     "If demo data was used, keep one plain sentence: "
+                     "the county map servers were unreachable so the results "
+                     "are demonstration data, not official county records."
                  )},
             ]
             if history:

@@ -6,18 +6,26 @@ import type { KnowledgeReference } from '@/types/geospatial'
  * Each `[S#]` ref matches an inline marker in the explanation; markers without
  * a matching entry are stripped by the backend and never reach this list.
  */
-export function ReferencesList({ references }: { references?: KnowledgeReference[] }) {
+export function ReferencesList({
+  references,
+  idPrefix = 'refs',
+}: {
+  references?: KnowledgeReference[]
+  /** Anchor prefix shared with the RichText shown alongside this list. */
+  idPrefix?: string
+}) {
   if (!references || references.length === 0) return null
   return (
     <div className="border border-line px-3 py-2">
       <div className="text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-3">
         References
       </div>
-      <ol className="mt-1 space-y-1">
+      <ol className="mt-1 space-y-1.5">
         {references.map((reference) => (
           <li
             key={reference.ref}
-            className="flex items-baseline gap-1.5 text-[12px] leading-snug"
+            id={`${idPrefix}-ref-${reference.ref}`}
+            className="flex scroll-mt-2 items-baseline gap-1.5 text-[12px] leading-snug"
           >
             <span className="shrink-0 font-mono text-[11px] text-ink-3">
               [{reference.ref}]

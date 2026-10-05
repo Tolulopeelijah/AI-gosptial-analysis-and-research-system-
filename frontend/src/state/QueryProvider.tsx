@@ -39,6 +39,10 @@ export interface QueryContextValue {
   fillDraft: (value: string) => void
   /** Increments each time focus is requested, so the composer can react to it. */
   focusRequest: number
+  /** Opens the upload drawer (activity rail or composer shortcut). */
+  requestUpload: () => void
+  /** Increments each time an upload is requested; the drawer reacts to it. */
+  uploadRequest: number
   /**
    * Puts a previous run's results back on the map.
    * Returns false when the layers are no longer cached (e.g. after a reload),
@@ -66,6 +70,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
   const { record } = history
   const [draft, setDraft] = useState('')
   const [focusRequest, setFocusRequest] = useState(0)
+  const [uploadRequest, setUploadRequest] = useState(0)
   const [mode, setMode] = useState<QueryMode>('research')
   const [aims, setAims] = useState('')
   const [chatTurns, setChatTurns] = useState<ChatTurn[]>([])
@@ -99,6 +104,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
             references: outcome.references,
             dataset: outcome.dataset,
             count: outcome.resultCount,
+            layers: outcome.layers,
             errorCode: outcome.status === 'failed' ? outcome.errorCode : undefined,
           },
         ])
@@ -147,6 +153,10 @@ export function QueryProvider({ children }: { children: ReactNode }) {
 
   const clearChat = useCallback(() => setChatTurns([]), [])
 
+  const requestUpload = useCallback(() => {
+    setUploadRequest((current) => current + 1)
+  }, [])
+
   const chatHistory = useMemo<ChatMessage[]>(
     () =>
       chatTurns.flatMap((turn): ChatMessage[] => [
@@ -164,6 +174,8 @@ export function QueryProvider({ children }: { children: ReactNode }) {
       setDraft,
       fillDraft,
       focusRequest,
+      requestUpload,
+      uploadRequest,
       mode,
       setMode,
       aims,
@@ -172,7 +184,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
       chatHistory,
       clearChat,
     }),
-    [query, restoreEntry, draft, fillDraft, focusRequest, mode, aims, chatTurns, chatHistory, clearChat],
+    [query, restoreEntry, draft, fillDraft, focusRequest, requestUpload, uploadRequest, mode, aims, chatTurns, chatHistory, clearChat],
   )
 
   return <QueryContext.Provider value={value}>{children}</QueryContext.Provider>

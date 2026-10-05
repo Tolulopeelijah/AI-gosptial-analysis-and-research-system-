@@ -3,6 +3,7 @@ import { Panel } from '@/components/ui/Panel'
 import { Button } from '@/components/ui/Button'
 import { DocumentIcon, DownloadIcon } from '@/components/ui/Icons'
 import { ReferencesList } from './ReferencesList'
+import { RichText } from './RichText'
 import { TablesSection } from './TablesSection'
 
 /**
@@ -36,6 +37,7 @@ export function PaperPanel() {
       title="Research report"
       icon={<DocumentIcon size={14} />}
       className="shrink-0"
+      collapsible
       actions={
         <>
           {paper.llm_grounded === false ? (
@@ -62,7 +64,9 @@ export function PaperPanel() {
 
         {paper.abstract ? (
           <Section heading="Abstract">
-            <p className="text-[12.5px] italic leading-relaxed text-ink-2">{paper.abstract}</p>
+            <p className="whitespace-pre-line text-[12.5px] italic leading-relaxed text-ink-2">
+              <RichText text={paper.abstract} references={paper.references} idPrefix="paper" />
+            </p>
           </Section>
         ) : null}
 
@@ -117,8 +121,12 @@ export function PaperPanel() {
             </ul>
           ) : null}
           {paper.results?.findings ? (
-            <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-2">
-              {paper.results.findings}
+            <p className="mt-1.5 whitespace-pre-line text-[12.5px] leading-relaxed text-ink-2">
+              <RichText
+                text={paper.results.findings}
+                references={paper.references}
+                idPrefix="paper"
+              />
             </p>
           ) : null}
           <div className="mt-2">
@@ -128,13 +136,25 @@ export function PaperPanel() {
 
         {paper.discussion ? (
           <Section heading="Discussion">
-            <p className="text-[12.5px] leading-relaxed text-ink-2">{paper.discussion}</p>
+            <p className="whitespace-pre-line text-[12.5px] leading-relaxed text-ink-2">
+              <RichText
+                text={paper.discussion}
+                references={paper.references}
+                idPrefix="paper"
+              />
+            </p>
           </Section>
         ) : null}
 
         {paper.conclusion ? (
           <Section heading="Conclusion">
-            <p className="text-[12.5px] leading-relaxed text-ink-2">{paper.conclusion}</p>
+            <p className="whitespace-pre-line text-[12.5px] leading-relaxed text-ink-2">
+              <RichText
+                text={paper.conclusion}
+                references={paper.references}
+                idPrefix="paper"
+              />
+            </p>
           </Section>
         ) : null}
 
@@ -148,7 +168,7 @@ export function PaperPanel() {
           </Section>
         ) : null}
 
-        <ReferencesList references={paper.references} />
+        <ReferencesList references={paper.references} idPrefix="paper" />
 
         {paper.reproducibility ? (
           <p className="font-mono text-[10px] leading-relaxed text-ink-3">

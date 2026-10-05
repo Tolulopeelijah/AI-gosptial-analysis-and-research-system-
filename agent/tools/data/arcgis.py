@@ -407,6 +407,7 @@ def _collect_matching_ids(url: str, core_light: Dict[str, Any], chunks,
     ids: List[int] = []
     seen = set()
     pages = 0
+    diag: List[str] = []
     for geometry, geometry_type in chunks:
         params = dict(core_light, geometry=geometry,
                       geometryType=geometry_type,
@@ -421,6 +422,11 @@ def _collect_matching_ids(url: str, core_light: Dict[str, Any], chunks,
                 req["resultOffset"] = offset
             page = _post_query(url, req)
             feats, exceeded = _features_of_page(page, url, "id phase")
+            if guard == 1:
+                diag.append(
+                    f"body_chars={sum(len(str(v)) for v in req.values())} "
+                    f"rc={req.get('resultRecordCount')} "
+                    f"exceeded={int(exceeded)} n={len(feats)}")
             new = 0
             for feat in feats:
                 props = feat.get("properties") if isinstance(feat, dict) else None
@@ -437,7 +443,9 @@ def _collect_matching_ids(url: str, core_light: Dict[str, Any], chunks,
                 break  # server ignoring offset; avoid a loop
         if len(ids) >= max_ids:
             break
-    return ids, pages
+    if not ids:
+        log.info("query_arcgis %s id-phase diagnostics: %s", url, "; ".join(diag))
+    return ids, pages, diag
 
 
 def _fetch_by_ids(url: str, ids: List[int], out_fields: str,
@@ -1092,9 +1100,13 @@ def query_arcgis(
                                     light.update(
                                         distance=distance_m,
                                         units="esriSRUnit_Meter")
-                                ids, id_pages = _collect_matching_ids(
+                                ids, id_pages, id_diag = _collect_matching_ids(
                                     url, light, chunks, max_features)
                                 url_pages += id_pages
+                                if not ids:
+                                    layer_notes.append(
+                                        f"{url}: ID-phase empty "
+                                        f"({'; '.join(id_diag)})")
                                 if ids:
                                     log.info("query_arcgis %s %s: ID-phase "
                                              "found %d matches; fetching "
@@ -1177,6 +1189,11 @@ def query_arcgis(
                                     url_pages += wpages
                                     kept = _local_within_distance_fallback(
                                         win, near, distance_m)
+                                    if not kept:
+                                        layer_notes.append(
+                                            f"{url}: envelope window empty "
+                                            f"(bbox={bbox_env['geometry'][:90]} "
+                                            f"candidates={len(win)})")
                                     if kept:
                                         log.info(
                                             "query_arcgis %s %s: envelope "

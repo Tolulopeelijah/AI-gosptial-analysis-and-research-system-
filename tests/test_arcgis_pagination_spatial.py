@@ -6,6 +6,8 @@ supported (ANY-semantics across reference polygons); and an unavailable
 distance capability must fall back to a *complete* local computation.
 """
 
+import json
+
 import pytest
 
 from agent.tools.data import arcgis as live
@@ -127,6 +129,34 @@ def test_id_phase_recovery_when_spatial_blanks(monkeypatch):
     assert out["ok"] and out["count"] == 2
     assert out["strategy"] == "server_spatial_ids"
     assert out["total_count"] == 2 and not out["truncated"]
+
+
+def test_zero_total_probe_runs_without_error(monkeypatch):
+    """Empty spatial result with total==0 must run the verify probe cleanly.
+
+    Regression: the probe once referenced an out-of-scope variable
+    (NameError), turning an honest zero into a step failure.
+    """
+    from agent.tools.data import arcgis as L
+
+    L.clear_capability_cache()
+    monkeypatch.setattr(L, "_mock_enabled", lambda: False)
+    monkeypatch.setattr(L, "_layer_urls",
+                        lambda dataset, extra=None: ["http://x/0"])
+    monkeypatch.setattr(L, "describe_layer", lambda url: {
+        "geometryType": "esriGeometryPoint", "supportsPagination": True,
+        "supportsQueryWithDistance": True, "supportsAdvancedQueries": True})
+    monkeypatch.setattr(L.requests, "post",
+                        lambda url, data=None, timeout=None: _FakeResponse(
+                            {"count": 0} if (data or {}).get("returnCountOnly")
+                            == "true" else {"features": []}))
+    monkeypatch.setattr(
+        L.requests, "get",
+        lambda url, params=None, timeout=None: _FakeResponse({"count": 0}))
+    out = L.query_arcgis("septic_systems", near=_near_poly(), distance_km=2,
+                         max_features=100)
+    assert out["ok"] and out["count"] == 0
+    assert "NameError" not in json.dumps(out.get("layer_errors", []))
 
 
 def _near_poly(lon=-83.55, lat=41.60, size=0.02):

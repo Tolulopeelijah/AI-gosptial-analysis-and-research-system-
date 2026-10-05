@@ -1165,7 +1165,7 @@ def query_arcgis(
                     "caps": caps, "pagination_supported": False,
                     "layer_notes": [], "page_notes": []}
 
-    def _probe_variant(record_count: int, with_geometry: bool) -> bool:
+    def _probe_variant(url: str, record_count: int, with_geometry: bool) -> bool:
         """One minimal probe request; False on any failure/empty."""
         try:
             if near is not None and chunks:
@@ -1206,12 +1206,11 @@ def query_arcgis(
         (``geom1``) and a larger page (``many100``). The detail string is
         surfaced in layer notes so remote diagnosis is possible.
         """
-        _ = url
-        light = _probe_variant(1, False)
+        light = _probe_variant(url, 1, False)
         detail = f"light1(hit)={int(light)}"
         if light:
-            geom1 = _probe_variant(1, True)
-            many100 = _probe_variant(100, False)
+            geom1 = _probe_variant(url, 1, True)
+            many100 = _probe_variant(url, 100, False)
             detail += f" geom1={int(geom1)} many100={int(many100)}"
         return light, detail
 

@@ -421,14 +421,24 @@ class RulePlanner:
             limit = _LIMIT_RE.search(q)
             if limit:
                 # "give me 5 septic systems ...": cap the final feature set
-                # for the map instead of ignoring the requested count.
+                # for the map instead of ignoring the requested count. The
+                # fetch itself is also narrowed (wider than n so the sample
+                # is representative, but far lighter than a full 2000-row
+                # pull on the slow county server).
+                wanted = max(1, min(int(limit.group(1)), 2000))
                 target = next((sid for sid in ("result", "septic", "floodplains")
                                if any(s.id == sid for s in steps)), None)
                 if target is not None:
+                    for s in steps:
+                        if s.id == target and s.tool == "query_arcgis":
+                            s.arguments = {
+                                **s.arguments,
+                                "max_features": min(
+                                    max(wanted * 10, 100), 2000),
+                            }
                     steps.append(PlanStep(
                         id="sample", tool="sample_features",
-                        arguments={"input": f"${target}",
-                                   "n": max(1, min(int(limit.group(1)), 2000))},
+                        arguments={"input": f"${target}", "n": wanted},
                         depends_on=[target]))
             if wants_knowledge:
                 steps.append(PlanStep(id="kb", tool="search_knowledge_base",

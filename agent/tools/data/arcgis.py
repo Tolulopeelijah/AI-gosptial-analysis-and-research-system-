@@ -339,6 +339,7 @@ def _fetch_spatial_pages(
         chunk_offset = 0
         chunk_pages = 0
         empty_streak = 0
+        stepped_down = False
         last_new_total = len(collected)
         while len(collected) < max_features:
             if chunk_pages >= MAX_PAGES_GUARD:
@@ -360,6 +361,16 @@ def _fetch_spatial_pages(
             pages += 1
             chunk_pages += 1
             if not feats:
+                if (chunk_pages == 1 and chunk_offset == 0
+                        and not stepped_down and page_size > 100):
+                    # First page inexplicably empty: the county server
+                    # sometimes blanks on large record counts. Retry the same
+                    # offset once with a smaller page before concluding zero.
+                    page_size = max(100, page_size // 4)
+                    stepped_down = True
+                    log.info("query_arcgis %s: empty first page, stepping "
+                             "down to page_size=%d", url, page_size)
+                    continue
                 empty_streak += 1
                 if empty_streak >= 2:
                     break
@@ -504,6 +515,7 @@ def _fetch_plain_pages(
     url_pages = 0
     offset = 0
     empty_streak = 0
+    stepped_down = False
     stopped_early: Optional[str] = None
     layer_note: Optional[str] = None
     while len(per_layer) < max_features:
@@ -547,6 +559,15 @@ def _fetch_plain_pages(
                 new += 1
         url_pages += 1
         if not feats:
+            if (url_pages == 1 and offset == 0 and not stepped_down
+                    and page_size > 100):
+                # Same step-down as spatial pages: the county server
+                # sometimes blanks on large record counts.
+                page_size = max(100, page_size // 4)
+                stepped_down = True
+                log.info("query_arcgis %s: empty first page, stepping down "
+                         "to page_size=%d", url, page_size)
+                continue
             empty_streak += 1
             if empty_streak >= 2:
                 break

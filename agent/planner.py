@@ -276,6 +276,10 @@ _PARAM_NAMES = [
     ("discharge", "FLOW"), ("dissolved", "SRP"), ("soluble", "SRP"),
     ("flow", "FLOW"),
 ]
+_LIMIT_RE = re.compile(
+    r"\b(?:give(?: me)?|show(?: me)?|get(?: me)?|return|list|display|find|top|first)\s+(\d{1,4})\b",
+    re.I,
+)
 _KNOW_RE = re.compile(r"\b(publication|research|paper|stud(y|ies)|implication|ncwqr|literature|wqr)\b", re.I)
 _SEPTIC_RE = re.compile(r"\bseptics?\b", re.I)
 _FLOOD_RE = re.compile(r"\bfloodplain|flood\b", re.I)
@@ -349,7 +353,12 @@ class RulePlanner:
                          PlanStep(id="count", tool="count_features",
                                   arguments={"input": f"${target}"},
                                   depends_on=[target])]
-        elif re.search(r"\b(area|how large|how big|total size)\b", q, re.I) and wants_flood:
+        elif (re.search(r"\b(area|how large|how big|total size)\b", q, re.I)
+                and wants_flood and not wants_septic
+                and not _DISTANCE_RE.search(q)):
+            # Guarded: "floodplains area" (the dataset phrase) or a proximity
+            # query ("within 10km of floodplains area") must not route here —
+            # only genuine area questions with no septic/proximity intent.
             steps = [PlanStep(id="floodplains", tool="query_arcgis",
                               arguments={"dataset": "floodplains"}, depends_on=[]),
                      PlanStep(id="area", tool="calculate_area",
@@ -409,6 +418,18 @@ class RulePlanner:
                     id="result", tool="intersect",
                     arguments={"input_a": "$septic", "input_b": "$floodplains"},
                     depends_on=["septic", "floodplains"]))
+            limit = _LIMIT_RE.search(q)
+            if limit:
+                # "give me 5 septic systems ...": cap the final feature set
+                # for the map instead of ignoring the requested count.
+                target = next((sid for sid in ("result", "septic", "floodplains")
+                               if any(s.id == sid for s in steps)), None)
+                if target is not None:
+                    steps.append(PlanStep(
+                        id="sample", tool="sample_features",
+                        arguments={"input": f"${target}",
+                                   "n": max(1, min(int(limit.group(1)), 2000))},
+                        depends_on=[target]))
             if wants_knowledge:
                 steps.append(PlanStep(id="kb", tool="search_knowledge_base",
                                       arguments={"query": q}, depends_on=[]))

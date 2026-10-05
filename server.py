@@ -23,6 +23,11 @@ log = logging.getLogger("geospatial-server")
 app = Flask(__name__)
 agent = GeospatialAgent()
 
+# Bumped on every deploy-relevant change so /health reveals which code a
+# host is actually running (Render redeploys take minutes; poll until this
+# flips before re-testing a fix).
+APP_VERSION = "2026-10-05-perf1-planner-limits"
+
 
 @app.after_request
 def add_cors_headers(response):
@@ -44,7 +49,7 @@ def query_preflight():
 
 @app.get("/health")
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "version": APP_VERSION})
 
 
 @app.get("/test-arcgis")

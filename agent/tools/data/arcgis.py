@@ -38,7 +38,10 @@ log = logging.getLogger(__name__)
 
 TIMEOUT = 30
 MAX_FEATURES = 2000  # historical default total cap (kept for backwards compat)
-PAGE_SIZE = 1000  # default rows per paged ArcGIS request
+# Default rows per paged request. The county layers advertise
+# maxRecordCount=2000, and each round trip costs seconds on that server, so
+# page at the service maximum to minimise request count (slow-query budget).
+PAGE_SIZE = 2000
 PAGE_SIZE_MAX = 2000  # per-request service page size (resultRecordCount ceiling)
 ABSOLUTE_MAX_FEATURES = 50000  # hard safety ceiling for explicit full-analysis fetches
 MAX_PAGES_GUARD = 100  # infinite-pagination-loop guard (per URL)
@@ -227,10 +230,15 @@ def _near_chunks(near, distance_m: Optional[float]) -> Tuple[List[Tuple[str, str
             return [(geom, kind)], len(pairs)
         tolerance = 100.0 if not distance_m else min(250.0, max(25.0, distance_m / 20.0))
         simple = _simplify_pairs(chunks[0], tolerance)
-        geom, kind = _esri_chunk(simple or chunks[0])
-        if len(geom) <= MAX_GEOMETRY_CHARS:
-            log.info("near geometry simplified (tol %.0f m) for POST", tolerance)
-            return [(geom, kind)], len(pairs)
+        if simple:
+            geom, kind = _esri_chunk(simple)
+            if len(geom) <= MAX_GEOMETRY_CHARS:
+                log.info("near geometry simplified (tol %.0f m) for POST", tolerance)
+                return [(geom, kind)], len(pairs)
+            # Still oversized: keep the simplified pairs for batching below
+            # instead of resending the heavier original geometry.
+            chunks = [simple[i:i + NEAR_BATCH_SIZE]
+                      for i in range(0, len(simple), NEAR_BATCH_SIZE)]
     log.info("near area split into %d POST batches", len(chunks))
     batched = []
     for chunk in chunks:
@@ -516,35 +524,6 @@ def _fetch_plain_pages(
     return per_layer[:max_features], url_pages, info
 
 
-def _fix_total_for_url(per_url_counts, url: str, scanned: int, kept: int,
-                       total_holder: List) -> None:
-    """Annotate per-URL totals after a local fallback (matched vs scanned).
-
-    The pre-fetch ``returnCountOnly`` total is unfiltered (or distance-aware
-    on services that support it); after a local fallback the exact matched
-    total is ``kept``. Replace the entry total and adjust the global total
-    (``total_holder[0]``) by the same delta so truncation compares
-    matched-vs-matched, not matched-vs-scanned.
-    """
-    for entry in per_url_counts:
-        if entry.get("url") == url:
-            old = entry.get("total")
-            entry["scanned"] = scanned
-            entry["matched"] = kept
-            entry["total"] = kept
-            if total_holder and total_holder[0] is not None and old is not None:
-                try:
-                    total_holder[0] = total_holder[0] - int(old) + int(kept)
-                except (TypeError, ValueError):
-                    pass
-            return
-    per_url_counts.append({"url": url, "total": kept, "scanned": scanned,
-                           "matched": kept, "fetched": kept, "pages": 0})
-    if total_holder and total_holder[0] is not None:
-        # No prior entry for this URL: totals were best-effort; leave global.
-        pass
-
-
 def _spatial_total(url: str, core: Dict[str, Any], chunks) -> Optional[int]:
     """Best-effort server-side match count for the same spatial filter."""
     total = 0
@@ -809,21 +788,21 @@ def query_arcgis(
               dataset, where, bbox, near_count, distance_km,
               max_features, page_size, len(urls))
 
-    all_features: List[Dict[str, Any]] = []
-    geometry_type = ""
-    errors: List[str] = []        # fatal per-URL failures (no features kept)
-    layer_errors: List[str] = []  # partial failures (kept what we could)
-    total_count: Optional[int] = None  # server-side total (returnCountOnly sum)
-    total_pages = 0
-    per_url_counts: List[Dict[str, Any]] = []
-    capabilities_by_url: Dict[str, Dict[str, Any]] = {}
-    strategies: List[str] = []
-    page_notes: List[str] = []
-    for url in urls:
+    def _fetch_one_url(url: str) -> Dict[str, Any]:
+        """Fetch + filter a single layer URL (thread-safe; no shared state).
+
+        Returns per-URL result; the caller merges in URL order so multi-URL
+        output stays deterministic. Designed for concurrent execution: layer
+        URLs are independent, and the county server is slow per request.
+        """
         per_layer: List[Dict[str, Any]] = []
         url_pages = 0
+        url_geometry_type = ""
+        entry: Optional[Dict[str, Any]] = None
+        url_strategy = "plain_paginated"
+        layer_notes: List[str] = []
+        page_notes_local: List[str] = []
         caps = get_layer_capabilities(url)
-        capabilities_by_url[url] = caps
         pagination_supported = bool(caps.get("supportsPagination", False)) \
             or "unknown" in caps or caps.get("unknown", False) \
             or caps.get("supportsAdvancedQueries", False)
@@ -833,7 +812,7 @@ def query_arcgis(
             pagination_supported = True
         distance_supported = bool(caps.get("supportsQueryWithDistance", False)) \
             or "unknown" in caps
-        url_strategy = "plain_paginated"
+        url_total: Optional[int] = None
         try:
             # Cheap server-side total so truncation is never silent.
             if near is not None:
@@ -843,10 +822,9 @@ def query_arcgis(
                                       units="esriSRUnit_Meter")
                 subtotal = _spatial_total(url, core_count, chunks)
                 if subtotal is not None:
-                    total_count = (subtotal if total_count is None
-                                   else total_count + subtotal)
-                    per_url_counts.append({"url": url, "total": subtotal,
-                                           "fetched": 0, "pages": 0})
+                    url_total = subtotal
+                    entry = {"url": url, "total": subtotal,
+                             "fetched": 0, "pages": 0}
             else:
                 try:
                     c_resp = requests.get(
@@ -857,11 +835,9 @@ def query_arcgis(
                     )
                     c_payload = c_resp.json()
                     if "count" in c_payload:
-                        c_val = int(c_payload["count"])
-                        total_count = (c_val if total_count is None
-                                       else total_count + c_val)
-                        per_url_counts.append({"url": url, "total": c_val,
-                                               "fetched": 0, "pages": 0})
+                        url_total = int(c_payload["count"])
+                        entry = {"url": url, "total": url_total,
+                                 "fetched": 0, "pages": 0}
                 except Exception:
                     pass  # totals are best-effort; the feature fetch decides ok/fail
             # Per-URL budget (not first-URL-wins): every layer URL returns up
@@ -880,11 +856,16 @@ def query_arcgis(
                     url_pages += plain_pages
                     kept = _local_within_distance_fallback(
                         plain, near, distance_m)
-                    # Local totals replace the server total for this URL.
-                    _total_holder = [total_count]
-                    _fix_total_for_url(per_url_counts, url, len(plain),
-                                       len(kept), _total_holder)
-                    total_count = _total_holder[0]
+                    # Local matched totals replace the server total for URL.
+                    if entry is not None:
+                        entry["scanned"] = len(plain)
+                        entry["matched"] = len(kept)
+                        entry["total"] = len(kept)
+                    else:
+                        entry = {"url": url, "total": len(kept),
+                                 "scanned": len(plain), "matched": len(kept),
+                                 "fetched": 0, "pages": 0}
+                    url_total = len(kept)
                     per_layer = kept[:max_features]
                     url_strategy = "local_fallback_distance_unsupported"
                 else:
@@ -915,10 +896,16 @@ def query_arcgis(
                             url_pages += plain_pages
                             _kept = _local_within_distance_fallback(
                                 plain, near, distance_m)
-                            _holder = [total_count]
-                            _fix_total_for_url(per_url_counts, url, len(plain),
-                                               len(_kept), _holder)
-                            total_count = _holder[0]
+                            if entry is not None:
+                                entry["scanned"] = len(plain)
+                                entry["matched"] = len(_kept)
+                                entry["total"] = len(_kept)
+                            else:
+                                entry = {"url": url, "total": len(_kept),
+                                         "scanned": len(plain),
+                                         "matched": len(_kept),
+                                         "fetched": 0, "pages": 0}
+                            url_total = len(_kept)
                             per_layer = _kept[:max_features]
                             url_strategy = "local_fallback_distance_unsupported"
                         else:
@@ -926,20 +913,12 @@ def query_arcgis(
                     else:
                         url_strategy = "server_spatial"
                         if pg_info.get("stopped_early"):
-                            page_notes.append(f"{url}: {pg_info['stopped_early']}")
-                            layer_errors.append(
+                            page_notes_local.append(
+                                f"{url}: {pg_info['stopped_early']}")
+                            layer_notes.append(
                                 f"{url}: paging stopped early "
                                 f"({pg_info['stopped_early']}); kept "
                                 f"{len(per_layer)} features")
-                    # Fallback safety: a spatial POST that returns 0 while the
-                    # plain count is non-zero may mean the service ignored the
-                    # geometry (some MapServers do). Verify with one cheap
-                    # plain page before declaring an honest zero.
-                    if (url_strategy == "server_spatial" and not per_layer
-                            and (per_url_counts and next(
-                                (e.get("total", 0) for e in per_url_counts
-                                 if e.get("url") == url), 0) or 0) == 0):
-                        pass
             else:
                 if bbox_params:
                     url_strategy = "server_spatial_bbox"
@@ -947,37 +926,82 @@ def query_arcgis(
                     url, where, out_fields, return_geometry, bbox_params,
                     max_features, page_size, pagination_supported)
                 if pg_info.get("stopped_early"):
-                    page_notes.append(f"{url}: {pg_info['stopped_early']}")
-                    layer_errors.append(
+                    page_notes_local.append(f"{url}: {pg_info['stopped_early']}")
+                    layer_notes.append(
                         f"{url}: paging stopped early "
                         f"({pg_info['stopped_early']}); kept {len(per_layer)} "
                         "features")
             try:
                 meta = describe_layer(url)
-                geometry_type = geometry_type or meta.get("geometryType", "")
+                url_geometry_type = meta.get("geometryType", "")
             except Exception as exc:  # metadata is best-effort
                 log.warning("layer metadata fetch failed for %s: %s", url, exc)
-            strategies.append(url_strategy)
-            all_features.extend(per_layer[:max_features])
-            for entry in per_url_counts:
-                if entry.get("url") == url:
-                    entry["fetched"] = len(per_layer[:max_features])
-                    entry["pages"] = url_pages
-            total_pages += url_pages
+            if entry is not None:
+                entry["fetched"] = len(per_layer[:max_features])
+                entry["pages"] = url_pages
             log.info("query_arcgis dataset=%s url=%s strategy=%s "
                      "offset_pages=%d fetched=%d/%s total=%s pagination=%s",
                      dataset, url, url_strategy, url_pages,
                      len(per_layer[:max_features]), max_features,
-                     next((e.get("total") for e in per_url_counts
-                           if e.get("url") == url), None),
+                     url_total,
                      "supported" if pagination_supported else "single-page")
+            return {"url": url, "fatal": None,
+                    "features": per_layer[:max_features],
+                    "pages": url_pages, "strategy": url_strategy,
+                    "geometry_type": url_geometry_type,
+                    "total": url_total, "entry": entry,
+                    "caps": caps, "pagination_supported": pagination_supported,
+                    "layer_notes": layer_notes, "page_notes": page_notes_local}
         except Exception as exc:
             note = f"{url}: {exc}"
-            errors.append(note)
             log.warning("layer fetch failed: %s", note)
-            for entry in per_url_counts:
-                if entry.get("url") == url:
-                    entry["error"] = str(exc)[:200]
+            if entry is not None:
+                entry["error"] = str(exc)[:200]
+            return {"url": url, "fatal": note,
+                    "features": [], "pages": 0, "strategy": "failed",
+                    "geometry_type": "", "total": url_total, "entry": entry,
+                    "caps": caps, "pagination_supported": False,
+                    "layer_notes": [], "page_notes": []}
+
+    all_features: List[Dict[str, Any]] = []
+    geometry_type = ""
+    errors: List[str] = []        # fatal per-URL failures (no features kept)
+    layer_errors: List[str] = []  # partial failures (kept what we could)
+    total_count: Optional[int] = None  # server-side total (returnCountOnly sum)
+    total_pages = 0
+    per_url_counts: List[Dict[str, Any]] = []
+    capabilities_by_url: Dict[str, Dict[str, Any]] = {}
+    strategies: List[str] = []
+    page_notes: List[str] = []
+    # Layer URLs are independent: fetch concurrently (executor.map preserves
+    # URL order, so merged output stays deterministic). The county server is
+    # slow per request (~seconds), so this roughly halves wall time.
+    if len(urls) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(
+                max_workers=min(4, len(urls))) as _pool:
+            url_results = list(_pool.map(_fetch_one_url, urls))
+    else:
+        url_results = [_fetch_one_url(u) for u in urls]
+    for res in url_results:
+        capabilities_by_url[res["url"]] = res["caps"]
+        if res.get("fatal"):
+            errors.append(res["fatal"])
+            if res.get("entry") is not None:
+                per_url_counts.append(res["entry"])
+            continue
+        strategies.append(res["strategy"])
+        all_features.extend(res["features"])
+        if res.get("total") is not None:
+            total_count = (res["total"] if total_count is None
+                           else total_count + res["total"])
+        if res.get("entry") is not None:
+            per_url_counts.append(res["entry"])
+        layer_errors.extend(res["layer_notes"])
+        page_notes.extend(res["page_notes"])
+        total_pages += res["pages"]
+        geometry_type = geometry_type or res["geometry_type"]
 
     if not all_features and errors:
         return {"ok": False, "error": "; ".join(errors), "code": "data_unavailable"}

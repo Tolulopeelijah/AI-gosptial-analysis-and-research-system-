@@ -149,38 +149,50 @@ class Orchestrator:
             if isinstance(out, dict) and out.get("mocked"):
                 mocked.append(out.get("dataset", step.id))
             if isinstance(out, dict) and out.get("type") == "FeatureCollection":
-                is_final = step.id in ("result",) or step.id == plan.steps[-1].id
+                # Provisional role; the true primary (the answer) is decided
+                # after the loop (a "near" step beats plan order, which puts
+                # the reference layer last in RulePlanner proximity plans).
+                is_final = step.id in ("result", "sample")
                 warning = out.get("truncation_warning")
                 if warning and warning not in truncation_warnings:
                     truncation_warnings.append(warning)
-                sample_note = ""
+                # --- user-facing layer subtitle: short, human-friendly ---
+                human_bits: List[str] = []
                 if out.get("truncated"):
                     total = out.get("total_count")
-                    sample_note = (
-                        f"sampled first {out.get('count', 0)} of {total}"
-                        if total else
-                        f"sampled first {out.get('count', 0)} (server cap)"
-                    )
-                for le in (out.get("layer_errors") or [])[:1]:
-                    err_short = le if len(le) <= 180 else le[:180] + "…"
-                    sample_note += (("; " if sample_note else "")
-                                    + f"layer trouble: {err_short}")
+                    if total:
+                        human_bits.append(
+                            f"showing first {out.get('count', 0)} of {total}")
+                    else:
+                        human_bits.append(
+                            f"showing first {out.get('count', 0)}")
+                if out.get("layer_errors"):
+                    human_bits.append("part of this layer failed to load")
                 puc = out.get("per_url_counts") or []
-                if len(puc) > 1 or any(
-                        (e.get("total") or 0) > 0 and not e.get("fetched")
-                        for e in puc):
-                    # Multi-URL honesty: show which service layer contributed
-                    # what (e.g. "MapServer/6: 0/3369; MapServer/7: 14/14"),
-                    # so silent per-layer gaps are visible without digging.
-                    bits = []
+                partial = [e for e in puc
+                           if (e.get("total") or 0) > 0 and not e.get("fetched")]
+                if puc and (len(puc) > 1 and (partial or len(puc) > 1)):
+                    # Only hint at partial coverage in the subtitle; full
+                    # per-URL counts stay in execution diagnostics.
+                    fetched = sum(e.get("fetched", 0) or 0 for e in puc)
+                    total_p = sum(e.get("total", 0) or 0 for e in puc)
+                    if total_p > fetched:
+                        human_bits.append(
+                            f"partial coverage ({fetched} of {total_p} loaded)")
+                sample_note = " · ".join(human_bits)
+                # --- full technical diagnostics: kept out of the subtitle,
+                # forwarded in execution + layer metadata instead ---
+                diagnostics: List[str] = []
+                for le in (out.get("layer_errors") or [])[:3]:
+                    diagnostics.append(str(le)[:500])
+                if puc:
                     for e in puc:
                         tail = "/".join(
                             str(e.get("url") or "").rstrip("/").split("/")[-2:])
-                        bits.append(f"{tail}: {e.get('fetched', 0)}/"
-                                    f"{e.get('total', '?')}")
-                    sample_note += (("; " if sample_note else "")
-                                    + "per-layer " + "; ".join(bits))
-                layers.append(feature_collection(
+                        diagnostics.append(
+                            f"{tail}: fetched={e.get('fetched', 0)} "
+                            f"total={e.get('total', '?')}")
+                layer = feature_collection(
                     out.get("features", []),
                     dataset=out.get("dataset", ""),
                     title=step.id.replace("_", " ").title(),
@@ -189,7 +201,18 @@ class Orchestrator:
                     role="primary" if is_final else "context",
                     style=out.get("style"),
                     choropleth=out.get("choropleth"),
-                ))
+                )
+                layer["metadata"]["step_id"] = step.id
+                if diagnostics:
+                    layer["metadata"]["diagnostics"] = diagnostics
+                    # Mark partial coverage for the explanation builder.
+                    if out.get("layer_errors") or partial:
+                        layer["metadata"]["partial"] = True
+                if out.get("truncated"):
+                    layer["metadata"]["sampled"] = True
+                    if out.get("total_count"):
+                        layer["metadata"]["total_count"] = out.get("total_count")
+                layers.append(layer)
                 if out.get("dataset"):
                     datasets.append(out["dataset"])
                 for s in out.get("sources", []):
@@ -263,20 +286,45 @@ class Orchestrator:
                     sources.append(entry)
                     references.append({**entry, "passage": h.get("passage", "")})
 
-        # Final GIS layer = output of the last FeatureCollection-producing step.
+        # Primary = the answer layer; the rest are context searched against.
+        # RulePlanner proximity plans list the reference layer last
+        # ([septic(near=floodplains), floodplains]), so "last step" alone
+        # would crown the reference. Prefer: sample > result > the step
+        # that carries the spatial filter (near/spatial_filter) > last layer.
+        if layers:
+            by_step = {l["metadata"].get("step_id"): l for l in layers}
+            primary_step = None
+            for candidate in ("sample", "result"):
+                if candidate in by_step:
+                    primary_step = candidate
+                    break
+            if primary_step is None:
+                for step in plan.steps:
+                    args = step.arguments or {}
+                    if step.id in by_step and (
+                            args.get("near") or args.get("spatial_filter")):
+                        primary_step = step.id
+            if primary_step is None and layers:
+                # Fall back to the last FeatureCollection step in plan order.
+                for step in reversed(plan.steps):
+                    if step.id in by_step:
+                        primary_step = step.id
+                        break
+            ordered = [l for l in layers
+                       if l["metadata"].get("step_id") != primary_step]
+            primary_layer = by_step.get(primary_step, layers[-1])
+            ordered.append(primary_layer)
+            layers = ordered
+            for layer in layers[:-1]:
+                layer["metadata"]["role"] = "context"
+            layers[-1]["metadata"]["role"] = "primary"
         primary_count = layers[-1]["metadata"]["count"] if layers else None
         status = "completed" if not fatal or layers or table_notes or downloads else "failed"
-        explanation = self._explain(plan, layers, table_notes, sources, fatal)
-        if truncation_warnings:
-            explanation += " Warning: " + " ".join(truncation_warnings)
-        if mocked:
-            explanation += (
-                " Note: "
-                + ", ".join(sorted(set(mocked)))
-                + " feature(s) are mock-backed fixtures (live ArcGIS servers "
-                "unreachable); geometry and attributes are provisional, not "
-                "real county records."
-            )
+        explanation = self._explain(
+            plan, layers, tables, table_notes, sources, fatal,
+            mocked=sorted(set(mocked)),
+            truncation_warnings=truncation_warnings,
+        )
         error = None
         if fatal and not (layers or table_notes):
             error = {"code": "processing_error",
@@ -304,33 +352,212 @@ class Orchestrator:
                         "table_notes": table_notes,
                         "mocked_datasets": sorted(set(mocked)),
                         "truncation_warnings": truncation_warnings,
+                        "layer_diagnostics": {
+                            (l["metadata"].get("title") or "layer"): l["metadata"].get(
+                                "diagnostics", [])
+                            for l in layers
+                            if l["metadata"].get("diagnostics")},
                        "knowledge_hits": sum(1 for s in sources if s.get("identifier"))},
         )
 
     @staticmethod
-    def _explain(plan, layers, table_notes, sources, errors) -> str:
-        parts = [f"Goal: {plan.goal}."]
-        for layer in layers:
-            md = layer["metadata"]
-            seg = (f"{md['title']}: {md['count']} features "
-                   f"({md.get('dataset', '')}).".strip())
-            if md.get("description"):
-                seg += f" [{md['description']}]"
-            parts.append(seg)
-        parts.extend(table_notes)
-        if sources:
-            titles = [s.get("title") or s.get("source") or s.get("dataset")
-                      or s.get("url") for s in sources[:5]]
-            titles = list(dict.fromkeys(t for t in titles if t))
-            if titles:
-                parts.append("Sources: " + "; ".join(titles) + ".")
-        for e in errors:
-            parts.append(f"Step '{e.get('step')}' failed: {e.get('error')}.")
-        # A zero intersect over sampled heads is "no overlap in the sample",
-        # not proof of zero county-wide — say so instead of a bare 0.
-        if (layers and layers[-1]["metadata"].get("count") == 0
-                and any(l["metadata"].get("description", "").startswith("sampled")
-                        for l in layers)):
-            parts.append("0 intersections in the sampled subsets; "
-                         "narrow with a place name or bbox for a full-county check.")
-        return " ".join(p for p in parts if p)
+    def _pretty_dataset(name: str) -> str:
+        pretty = {
+            "septic_systems": "septic systems",
+            "floodplains": "floodplain areas",
+            "maumee_water_quality": "Maumee water-quality records",
+        }
+        if not name:
+            return "matching features"
+        if name in pretty:
+            return pretty[name]
+        return name.replace("_", " ")
+
+    @classmethod
+    def _pretty_dataset_n(cls, n: int, name: str) -> str:
+        """Count + correctly pluralised dataset name ('1 septic system')."""
+        singular_plural = {
+            "septic_systems": ("septic system", "septic systems"),
+            "floodplains": ("floodplain area", "floodplain areas"),
+            "maumee_water_quality": (
+                "Maumee water-quality record", "Maumee water-quality records"),
+        }
+        if name in singular_plural:
+            word = singular_plural[name][0] if n == 1 else singular_plural[name][1]
+        else:
+            base = cls._pretty_dataset(name)
+            word = base[:-1] if (n == 1 and base.endswith("s")) else base
+        return f"{n} {word}"
+
+    @classmethod
+    def _explain(cls, plan, layers, tables, table_notes, sources, errors,
+                 mocked=None, truncation_warnings=None) -> str:
+        """Natural-language summary of what was found.
+
+        Technical diagnostics (per-URL counts, raw service errors, step ids)
+        stay in ``execution`` / layer ``metadata.diagnostics`` — the
+        explanation is what a person would say in chat.
+        """
+        mocked = mocked or []
+        truncation_warnings = truncation_warnings or []
+        sentences: List[str] = []
+
+        def plural(n: int, singular: str, plural_form: str = "") -> str:
+            return singular if n == 1 else (plural_form or singular + "s")
+
+        # ---- GIS layers ----
+        if layers:
+            primary = layers[-1]["metadata"]
+            context = [l["metadata"] for l in layers[:-1]]
+            primary_n = primary.get("count", 0)
+            derived = not primary.get("dataset")
+            # "Sample"/"Result" step titles mean nothing to users — describe
+            # what the layer actually is instead.
+            if not derived:
+                what = cls._pretty_dataset(primary.get("dataset", ""))
+                what_n = cls._pretty_dataset_n(
+                    primary_n, primary.get("dataset", ""))
+            elif context:
+                what = cls._pretty_dataset(context[-1].get("dataset", ""))
+                what_n = (f"{primary_n} matching feature" if primary_n == 1
+                          else f"{primary_n} matching features")
+            else:
+                what = "matching features"
+                what_n = (f"{primary_n} matching feature" if primary_n == 1
+                          else f"{primary_n} matching features")
+
+            if primary_n == 0:
+                if context:
+                    bits = [
+                        cls._pretty_dataset_n(
+                            c.get("count", 0), c.get("dataset", ""))
+                        for c in context]
+                    sentences.append(
+                        f"I checked {' and '.join(bits)} but didn't find "
+                        f"any {what} matching your search.")
+                else:
+                    sentences.append(
+                        f"I didn't find any {what} matching your search.")
+                # Sampled-zero is "no overlap in the sample", not proof of
+                # zero county-wide.
+                if primary.get("sampled") or any(
+                        c.get("sampled") for c in context):
+                    sentences.append(
+                        "That's based on the sample I could load — "
+                        "try narrowing with a place name or map area "
+                        "for a full check.")
+                elif primary.get("partial") or any(
+                        c.get("partial") for c in context):
+                    sentences.append(
+                        "One of the map layers only partly loaded, "
+                        "so it's worth trying again or zooming in.")
+            else:
+                if derived:
+                    sentences.append(
+                        f"I found {what_n} — "
+                        f"{'it is' if primary_n == 1 else 'they are'} "
+                        f"shown on the map.")
+                    if context:
+                        bits = [
+                            cls._pretty_dataset_n(
+                                c.get("count", 0), c.get("dataset", ""))
+                            for c in context]
+                        sentences.append(
+                            f"I checked {' and '.join(bits)} to get there.")
+                else:
+                    sentences.append(
+                        f"I found {what_n} — "
+                        f"{'it is' if primary_n == 1 else 'they are'} "
+                        f"shown on the map.")
+                    others = [c for c in context
+                              if c.get("dataset") != primary.get("dataset")]
+                    if others:
+                        bits = [
+                            cls._pretty_dataset_n(
+                                c.get("count", 0), c.get("dataset", ""))
+                            for c in others]
+                        sentences.append(
+                            f"I searched against {' and '.join(bits)}.")
+                if primary.get("sampled"):
+                    total = primary.get("total_count")
+                    if total:
+                        sentences.append(
+                            f"That's the first {primary_n} of about "
+                            f"{total} — zoom in or ask for a specific area "
+                            f"to see more.")
+                    else:
+                        sentences.append(
+                            "That's a sample of what's available — "
+                            "ask for a specific area to see more.")
+                elif primary.get("partial"):
+                    sentences.append(
+                        "Heads up: part of the layer had trouble loading, "
+                        "so there may be more out there.")
+        # ---- tables ----
+        for t in (tables or []):
+            title = (t.get("title") or "").strip() or "Result"
+            rows = t.get("rows", []) or []
+            cols = t.get("columns", []) or []
+            n = t.get("row_count", len(rows))
+            if n == 0:
+                sentences.append(f"The {title.lower()} table came back empty.")
+            elif n == 1 and rows and isinstance(rows[0], dict):
+                # Quote the single row's key facts conversationally.
+                facts = ", ".join(
+                    f"{k} is {v}" for k, v in list(rows[0].items())[:4])
+                sentences.append(
+                    f"The {title.lower()} table has one row ({facts}).")
+            elif rows and len(cols) <= 8:
+                sentences.append(
+                    f"The {title.lower()} table has {n} "
+                    f"{plural(n, 'row')} — the highlights are below.")
+            else:
+                sentences.append(
+                    f"I put together a {title.lower()} table with {n} "
+                    f"{plural(n, 'row')} — it's included below.")
+        # Fallback when there are neither layers nor tables (should be rare;
+        # full failure is handled by the caller with status=failed).
+        if not layers and not tables and not sentences:
+            if errors:
+                sentences.append(
+                    "Sorry — I ran into a problem loading that data, "
+                    "so I don't have anything to show yet.")
+            else:
+                sentences.append("I don't have anything to show for that yet.")
+
+        # ---- honesty notes, in plain words ----
+        if mocked:
+            what = " and ".join(
+                cls._pretty_dataset(m) for m in sorted(set(mocked)))
+            sentences.append(
+                f"A quick heads up: the county map servers were unreachable, "
+                f"so the {what} shown here are demo examples, "
+                f"not official county records.")
+        if truncation_warnings and not any(
+                l["metadata"].get("sampled") for l in layers):
+            sentences.append(
+                "I could only load part of the full dataset, "
+                "so try a smaller area for complete results.")
+
+        # ---- step errors: plain words, no step ids / raw tracebacks ----
+        recoverable = bool(layers or tables)
+        for e in errors or []:
+            msg = str(e.get("error", "") or "").strip()
+            # Raw service URLs and tracebacks never help in chat.
+            short = msg.split(";")[0][:160].rstrip()
+            if recoverable:
+                sentences.append(
+                    "One part of the lookup stumbled "
+                    + (f"({short})" if short else "") +
+                    " — what I could load is shown above.")
+                break
+            sentences.append(
+                "Sorry — I couldn't finish that lookup "
+                + (f"({short})" if short else "") + ". "
+                + "Try again, or narrow it to a smaller area.")
+            break
+
+        text = " ".join(s.strip() for s in sentences if s and s.strip())
+        # Safety net: never return the old debug-dump style even if a future
+        # caller passes something unexpected.
+        return text.strip() or "Here's what I found — see the map and details below."

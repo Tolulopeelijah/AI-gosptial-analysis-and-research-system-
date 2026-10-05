@@ -71,8 +71,9 @@ def _deterministic_sections(query, aims_list, plan, response) -> Dict[str, Any]:
     limitations = []
     for m in exec_.get("mocked_datasets", []) or []:
         limitations.append(
-            f"{m} features are mock-backed fixtures (live servers unreachable); "
-            "geometry and attributes are provisional, not real county records.")
+            f"{m} are shown as demo examples (county map servers were "
+            f"unreachable); locations and attributes are illustrative, "
+            f"not official county records.")
     limitations.append(
         "Single model run: LLM planning and prose vary between runs; "
         "re-run to assess variance before citing numbers.")

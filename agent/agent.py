@@ -103,11 +103,24 @@ class GeospatialAgent:
             except Exception as exc:
                 log.warning("paper build failed: %s", exc)
 
-        # Optional LLM-written explanation pass (only for knowledge/combined
-        # answers; GIS summaries already come from the orchestrator). Skipped
-        # in data mode (raw results for download) and spatial mode (map-first:
-        # the map is the answer, not text).
+        # Optional LLM-written explanation pass.
+        # - knowledge/combined answers always get a grounded rewrite (all
+        #   modes except data/spatial);
+        # - pure-GIS answers already have a natural deterministic summary
+        #   from the orchestrator, but chat mode gets a free-language LLM
+        #   polish pass when a model is configured (offline fallback stays
+        #   conversational, so chat never sees the old "Goal: ... [..]" dump).
+        # Skipped in data mode (raw results for download) and spatial mode
+        # (map-first: the map is the answer, not text).
         kind = outcome.get("kind", "gis")
+        if (mode == "chat" and kind == "gis"
+                and response.get("status") == "completed"
+                and mode not in ("data", "spatial")):
+            chat_rewrite = self._chat_rewrite_with_llm(
+                query, response.get("explanation", ""), response,
+                history=history)
+            if chat_rewrite:
+                response["explanation"] = chat_rewrite
         if (mode not in ("data", "spatial") and kind in ("knowledge", "combined")
                 and response.get("status") == "completed"):
             references = response.get("references") or []
@@ -146,12 +159,11 @@ class GeospatialAgent:
                 response["explanation"] = llm_text
                 # The rewrite must not drop the mock-data honesty note.
                 mocked = (response.get("execution") or {}).get("mocked_datasets") or []
-                if mocked and "mock-backed" not in response["explanation"]:
+                if mocked and "demo" not in response["explanation"].lower():
                     response["explanation"] += (
-                        " Note: " + ", ".join(mocked) + " feature(s) are "
-                        "mock-backed fixtures (live ArcGIS servers "
-                        "unreachable); geometry and attributes are "
-                        "provisional, not real county records."
+                        " (Quick heads up: the county map servers were "
+                        "unreachable, so these are demo examples, "
+                        "not official county records.)"
                     )
             # Grounding enforcement: strip hallucinated citations, record check.
             from .grounding import check_markers, strip_invalid_markers
@@ -226,6 +238,87 @@ class GeospatialAgent:
                 max_tokens=500,
             )
             return resp.choices[0].message.content
+        except Exception:
+            return None
+
+    def _chat_rewrite_with_llm(self, query: str, draft: str,
+                               response: Dict[str, Any],
+                               history: Optional[List[Dict[str, str]]] = None,
+                               ) -> Optional[str]:
+        """Free-language polish for chat-mode GIS answers.
+
+        The draft is already factual (deterministic counts from the
+        orchestrator); this pass only makes it sound like a person talking
+        in chat. Numbers, dataset names and honesty notes must be kept —
+        never invented. Returns None offline / on failure so the already
+        natural deterministic draft survives.
+        """
+        from .config import settings
+
+        if not settings.OPENAI_API_KEY:
+            return None
+        if not draft:
+            return None
+        try:
+            from openai import OpenAI
+
+            layers = response.get("results") or []
+            # Mark the answer layer explicitly so the rewrite can't crown a
+            # context layer (e.g. "2 floodplain areas" when the answer is the
+            # septic systems found near them).
+            layer_bits = "; ".join(
+                f"{'ANSWER' if (l.get('metadata') or {}).get('role') == 'primary' else 'context'} "
+                f"{(l.get('metadata') or {}).get('title')}: "
+                f"{(l.get('metadata') or {}).get('count')} features "
+                f"({(l.get('metadata') or {}).get('dataset')})"
+                for l in layers[:5])
+            mocked = ((response.get("execution") or {}).get("mocked_datasets")
+                      or [])
+            messages = [
+                {"role": "system",
+                 "content": (
+                      "Rewrite the draft GIS result as a short, natural chat "
+                      "reply (2-4 sentences, first person, conversational). "
+                      "The layer marked ANSWER is the result to report; "
+                      "context layers were only searched against. "
+                      "Keep every number, place/dataset name and honesty note "
+                      "exactly — do not invent data, locations, or counts. "
+                     "Never output debug text: no 'Goal:', no bracketed "
+                     "dumps like '[layer trouble: ...]' or '[per-layer ...]', "
+                     "no 'Sources: a; b', no step ids, no raw URLs. "
+                     "If the result is empty, say so kindly and suggest "
+                     "narrowing the area. "
+                     "If demo data was used, keep one plain sentence saying "
+                     "the county servers were unreachable so these are demo "
+                     "examples, not official records."
+                 )},
+            ]
+            if history:
+                messages.append({
+                    "role": "user",
+                    "content": "Conversation so far (for follow-up context):\n" + "\n".join(
+                        f"{'User' if h.get('role') == 'user' else 'Assistant'}: "
+                        f"{h.get('content', '')[:600]}" for h in history[-4:]),
+                })
+            messages.append({
+                "role": "user",
+                "content": f"User asked: {query}\nDraft result: {draft}\n"
+                           f"Layers: {layer_bits}\n"
+                           f"Demo datasets: {', '.join(mocked) or 'none'}",
+            })
+            client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            resp = client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=messages,
+                max_tokens=300,
+            )
+            text = (resp.choices[0].message.content or "").strip()
+            # Paranoia: an LLM that echoes debug formatting defeats the fix —
+            # fall back to the deterministic draft instead.
+            if any(marker in text for marker in (
+                    "Goal:", "layer trouble:", "per-layer ", "Sources:")):
+                return None
+            return text or None
         except Exception:
             return None
 

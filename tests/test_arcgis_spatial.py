@@ -137,7 +137,9 @@ def test_truncation_warning_in_execution_and_explanation():
     assert resp["status"] == "completed"
     warnings = resp["execution"].get("truncation_warnings") or []
     assert any("septic_systems" in w for w in warnings)
-    assert "Warning" in resp["explanation"] and "incomplete" in resp["explanation"]
+    # Explanation stays conversational but must stay honest about the cap.
+    assert "first 2" in resp["explanation"]
+    assert "Goal:" not in resp["explanation"]
 
 
 # -------------------------------------------------------------- validation ---

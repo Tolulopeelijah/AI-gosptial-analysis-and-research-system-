@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -75,11 +76,55 @@ def _layer_urls(dataset: str, extra: Optional[Dict[str, Any]] = None) -> List[st
     return []
 
 
+def _decode_json_dict(resp, url: str, via: str) -> Dict[str, Any]:
+    """Decode a JSON-object ArcGIS response or raise a diagnostic error.
+
+    The county server occasionally returns HTTP 200 with an empty/null/non-
+    object body under load; surfacing that distinctly (instead of a bare
+    ``'NoneType' has no attribute 'get'`` deep in paging code) is what makes
+    remote diagnosis possible.
+    """
+    try:
+        payload = resp.json()
+    except Exception as exc:
+        raise RuntimeError(
+            f"{via}: non-JSON response (HTTP {resp.status_code}): "
+            f"{str(exc)[:120]}") from exc
+    if payload is None:
+        raise RuntimeError(f"{via}: empty (null) response body")
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            f"{via}: unexpected response type {type(payload).__name__}")
+    return payload
+
+
+def _features_of_page(page: Any, url: str, via: str) -> Tuple[List[Dict[str, Any]], bool]:
+    """(dict-only features, exceededTransferLimit) from a decoded payload."""
+    if page is None:
+        raise RuntimeError(f"{via}: empty (null) response body")
+    if not isinstance(page, dict):
+        raise RuntimeError(f"{via}: unexpected response type "
+                            f"{type(page).__name__}")
+    if "error" in page:
+        raise RuntimeError(f"{via}: {page['error']}")
+    raw = page.get("features", []) or []
+    feats = [f for f in raw if isinstance(f, dict)]
+    if len(feats) != len(raw):
+        log.warning("query_arcgis %s %s: skipped %d non-dict features",
+                    url, via, len(raw) - len(feats))
+    return feats, bool(page.get("exceededTransferLimit"))
+
+
+def _decode_feature_page(resp, url: str, via: str) -> Tuple[List[Dict[str, Any]], bool]:
+    """(dict-only features, exceededTransferLimit) from a query response."""
+    return _features_of_page(_decode_json_dict(resp, url, via), url, via)
+
+
 def describe_layer(url: str) -> Dict[str, Any]:
     """Fetch live service metadata for one FeatureServer layer."""
     resp = requests.get(url.rstrip("/") + "?f=json", timeout=TIMEOUT)
     resp.raise_for_status()
-    meta = resp.json()
+    meta = _decode_json_dict(resp, url, "metadata")
     fields = [
         {"name": f.get("name"), "type": f.get("type"), "alias": f.get("alias")}
         for f in meta.get("fields", [])
@@ -247,9 +292,11 @@ def _near_chunks(near, distance_m: Optional[float]) -> Tuple[List[Tuple[str, str
     return batched, len(pairs)
 
 
-def _dedupe_key(feature: Dict[str, Any]) -> Tuple:
+def _dedupe_key(feature: Any) -> Tuple:
+    if not isinstance(feature, dict):
+        return ("bad", id(feature))
     props = feature.get("properties", {}) or {}
-    oid = props.get("OBJECTID")
+    oid = props.get("OBJECTID") if isinstance(props, dict) else None
     if oid is not None:
         return ("oid", oid)
     geom = feature.get("geometry")
@@ -259,8 +306,8 @@ def _dedupe_key(feature: Dict[str, Any]) -> Tuple:
 def _post_query(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
     resp = requests.post(url.rstrip("/") + "/query", data=params, timeout=TIMEOUT)
     resp.raise_for_status()
-    page = resp.json()
-    if isinstance(page, dict) and "error" in page:
+    page = _decode_json_dict(resp, url, "spatial POST")
+    if "error" in page:
         raise RuntimeError(page["error"])
     return page
 
@@ -302,7 +349,7 @@ def _fetch_spatial_pages(
             if chunk_offset and pagination_supported:
                 req["resultOffset"] = chunk_offset
             page = _post_query(url, req)
-            feats = page.get("features", []) or []
+            feats, exceeded = _features_of_page(page, url, "spatial page")
             new = 0
             for feat in feats:
                 key = _dedupe_key(feat)
@@ -325,7 +372,7 @@ def _fetch_spatial_pages(
                     stopped_early = "server ignored resultOffset (repeat page)"
                     break
             last_new_total = len(collected)
-            if not page.get("exceededTransferLimit") or not feats:
+            if not exceeded or not feats:
                 break
             if not pagination_supported:
                 stopped_early = "pagination unsupported (single page)"
@@ -480,9 +527,9 @@ def _fetch_plain_pages(
             resp = requests.get(url.rstrip("/") + "/query", params=params,
                                 timeout=TIMEOUT)
             resp.raise_for_status()
-            page = resp.json()
+            page = _decode_json_dict(resp, url, "plain page")
             if "error" in page:
-                raise RuntimeError(page["error"])
+                raise RuntimeError(f"plain page: {page['error']}")
         except Exception as exc:
             if per_layer:
                 layer_note = (f"{url}: kept {len(per_layer)} features "
@@ -490,7 +537,7 @@ def _fetch_plain_pages(
                 log.warning("partial layer fetch: %s", layer_note)
                 break
             raise
-        feats = page.get("features", []) or []
+        feats, exceeded = _features_of_page(page, url, "plain page")
         new = 0
         for feat in feats:
             key = _dedupe_key(feat)
@@ -508,7 +555,7 @@ def _fetch_plain_pages(
         if feats and new == 0 and url_pages > 1:
             stopped_early = "server ignored resultOffset (repeat page)"
             break
-        if not page.get("exceededTransferLimit") or len(per_layer) >= max_features:
+        if not exceeded or len(per_layer) >= max_features:
             break
         if not pagination_supported:
             stopped_early = "pagination unsupported (single page)"
@@ -833,12 +880,15 @@ def query_arcgis(
                                 "f": "json"},
                         timeout=TIMEOUT,
                     )
-                    c_payload = c_resp.json()
+                    c_payload = _decode_json_dict(
+                        c_resp, url, "count probe")
                     if "count" in c_payload:
                         url_total = int(c_payload["count"])
                         entry = {"url": url, "total": url_total,
                                  "fetched": 0, "pages": 0}
-                except Exception:
+                except Exception as exc:
+                    log.warning("query_arcgis %s %s: count probe failed: %s",
+                                dataset, url, exc)
                     pass  # totals are best-effort; the feature fetch decides ok/fail
             # Per-URL budget (not first-URL-wins): every layer URL returns up
             # to max_features, so e.g. floodplains MapServer/7 is never
@@ -953,7 +1003,7 @@ def query_arcgis(
                     "caps": caps, "pagination_supported": pagination_supported,
                     "layer_notes": layer_notes, "page_notes": page_notes_local}
         except Exception as exc:
-            note = f"{url}: {exc}"
+            note = f"{url}: {type(exc).__name__}: {exc}"
             log.warning("layer fetch failed: %s", note)
             if entry is not None:
                 entry["error"] = str(exc)[:200]
@@ -962,6 +1012,36 @@ def query_arcgis(
                     "geometry_type": "", "total": url_total, "entry": entry,
                     "caps": caps, "pagination_supported": False,
                     "layer_notes": [], "page_notes": []}
+
+    def _attempt_with_retry(url: str) -> Dict[str, Any]:
+        """One conditional retry for flaky empty results.
+
+        The county server intermittently answers valid requests with empty
+        pages (or a failed count probe) while the sibling layer succeeds. If
+        an attempt yields zero rows while the count probe promised some —
+        or the probe itself failed — wait briefly and try once more rather
+        than reporting a silent incomplete zero.
+        """
+        res = _fetch_one_url(url)
+        expected = res.get("total")
+        if (not res.get("fatal") and not res.get("features")
+                and (expected is None or expected > 0)):
+            log.info("query_arcgis %s %s: empty despite total=%s; retrying once",
+                     dataset, url, expected)
+            time.sleep(2.0)
+            retry = _fetch_one_url(url)
+            if retry.get("features") or retry.get("fatal"):
+                return retry
+            # Retry equally empty: keep the original but flag the mismatch.
+            if expected:
+                res["layer_notes"].append(
+                    f"{url}: server reported {expected} but returned 0 rows "
+                    "(possible service flake); narrow with a bbox and retry")
+            else:
+                res["layer_notes"].append(
+                    f"{url}: count probe failed and 0 rows retrieved "
+                    "(possible service flake)")
+        return res
 
     all_features: List[Dict[str, Any]] = []
     geometry_type = ""
@@ -981,9 +1061,9 @@ def query_arcgis(
 
         with ThreadPoolExecutor(
                 max_workers=min(4, len(urls))) as _pool:
-            url_results = list(_pool.map(_fetch_one_url, urls))
+            url_results = list(_pool.map(_attempt_with_retry, urls))
     else:
-        url_results = [_fetch_one_url(u) for u in urls]
+        url_results = [_attempt_with_retry(u) for u in urls]
     for res in url_results:
         capabilities_by_url[res["url"]] = res["caps"]
         if res.get("fatal"):

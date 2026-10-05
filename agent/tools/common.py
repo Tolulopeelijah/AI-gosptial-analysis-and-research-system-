@@ -86,6 +86,8 @@ def valid_shapes(fc: Dict[str, Any],
 
     out = []
     for feat in features_of(fc, name):
+        if not isinstance(feat, dict):
+            continue  # county servers occasionally emit null array entries
         try:
             geom = parse_geom(feat.get("geometry", {}), name)
         except ToolError:

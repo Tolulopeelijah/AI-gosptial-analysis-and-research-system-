@@ -181,9 +181,15 @@ def get_layer_capabilities(url: str) -> Dict[str, Any]:
         elif not has_keys:
             caps = {"unknown": True, "geometryType": meta.get("geometryType")}
         else:
+            # A missing distance flag (common on MapServer metadata) is NOT
+            # evidence of absence: the live probes evaluate distance
+            # correctly, so None means "try server-side, fall back if the
+            # service rejects it". Only an explicit false disables the
+            # server path.
+            qwd = meta.get("supportsQueryWithDistance", None)
             caps = {
                 "supportsPagination": bool(meta.get("supportsPagination", False)),
-                "supportsQueryWithDistance": bool(meta.get("supportsQueryWithDistance", False)),
+                "supportsQueryWithDistance": bool(qwd) if qwd is not None else None,
                 "supportsAdvancedQueries": bool(meta.get("supportsAdvancedQueries", False)),
                 "maxRecordCount": meta.get("maxRecordCount"),
                 "geometryType": meta.get("geometryType"),
@@ -972,39 +978,20 @@ def query_arcgis(
         # repeat-page detection below stops us if the server ignores it.
         if "unknown" in caps:
             pagination_supported = True
-        distance_supported = bool(caps.get("supportsQueryWithDistance", False)) \
-            or "unknown" in caps
+        # Try the server-side distance predicate unless the service
+        # explicitly disclaims it (explicit False only); an explicit Esri
+        # distance error still falls back to local computation below.
+        distance_supported = (
+            caps.get("supportsQueryWithDistance", None) is not False
+            or "unknown" in caps)
         url_total: Optional[int] = None
         try:
-            # Cheap server-side total so truncation is never silent.
-            if near is not None:
-                core_count = {"where": where}
-                if distance_m:
-                    core_count.update(distance=distance_m,
-                                      units="esriSRUnit_Meter")
-                subtotal = _spatial_total(url, core_count, chunks)
-                if subtotal is not None:
-                    url_total = subtotal
-                    entry = {"url": url, "total": subtotal,
-                             "fetched": 0, "pages": 0}
-            else:
-                try:
-                    c_resp = requests.get(
-                        url.rstrip("/") + "/query",
-                        params={"where": where, "returnCountOnly": "true",
-                                "f": "json"},
-                        timeout=TIMEOUT,
-                    )
-                    c_payload = _decode_json_dict(
-                        c_resp, url, "count probe")
-                    if "count" in c_payload:
-                        url_total = int(c_payload["count"])
-                        entry = {"url": url, "total": url_total,
-                                 "fetched": 0, "pages": 0}
-                except Exception as exc:
-                    log.warning("query_arcgis %s %s: count probe failed: %s",
-                                dataset, url, exc)
-                    pass  # totals are best-effort; the feature fetch decides ok/fail
+            # Pages first, totals after: the extra count probe POST used to
+            # run immediately before the real fetch, and back-to-back heavy
+            # POSTs correlate with blanked responses on this server. Totals
+            # are still exact whenever paging exhausts the result set; only
+            # a capped (max_features-reached) fetch needs a count probe for
+            # its "N of M" message (see below).
             # Per-URL budget (not first-URL-wins): every layer URL returns up
             # to max_features, so e.g. floodplains MapServer/7 is never
             # starved by MapServer/6 filling a shared budget.
@@ -1084,6 +1071,22 @@ def query_arcgis(
                                 f"{url}: paging stopped early "
                                 f"({pg_info['stopped_early']}); kept "
                                 f"{len(per_layer)} features")
+                        if distance_m and per_layer:
+                            # Trust-but-verify: the server pre-filtered, but
+                            # a service silently ignoring `distance` would
+                            # return the pure-intersects superset. The exact
+                            # local metric pass over this small returned
+                            # window guarantees every row satisfies
+                            # within-distance either way (milliseconds).
+                            verified = _local_within_distance_fallback(
+                                per_layer, near, distance_m)
+                            if len(verified) < len(per_layer):
+                                log.info(
+                                    "query_arcgis %s %s: distance "
+                                    "verification kept %d of %d server rows",
+                                    dataset, url, len(verified),
+                                    len(per_layer))
+                            per_layer = verified
                         if not per_layer:
                             # Empty full fetch on a predicate path the
                             # one-row probe says is non-empty: this server
@@ -1225,6 +1228,41 @@ def query_arcgis(
                         f"{url}: paging stopped early "
                         f"({pg_info['stopped_early']}); kept {len(per_layer)} "
                         "features")
+            if entry is None:
+                if len(per_layer) >= max_features:
+                    # Capped window: ask the server total for an honest
+                    # "N of M" message (best effort; unknown stays unknown).
+                    try:
+                        if near is not None:
+                            core_count = {"where": where}
+                            if distance_m:
+                                core_count.update(
+                                    distance=distance_m,
+                                    units="esriSRUnit_Meter")
+                            subtotal = _spatial_total(url, core_count, chunks)
+                        else:
+                            c_resp = requests.get(
+                                url.rstrip("/") + "/query",
+                                params={"where": where,
+                                        "returnCountOnly": "true",
+                                        "f": "json"},
+                                timeout=TIMEOUT)
+                            c_payload = _decode_json_dict(
+                                c_resp, url, "count probe")
+                            subtotal = int(c_payload["count"]) \
+                                if "count" in c_payload else None
+                    except Exception as exc:
+                        log.warning("query_arcgis %s %s: count probe failed: "
+                                    "%s", dataset, url, exc)
+                        subtotal = None
+                    url_total = subtotal
+                    entry = {"url": url, "total": subtotal,
+                             "fetched": 0, "pages": 0}
+                else:
+                    # Paging exhausted the result set: exact total, no probe.
+                    url_total = len(per_layer)
+                    entry = {"url": url, "total": url_total,
+                             "fetched": 0, "pages": 0}
             try:
                 meta = describe_layer(url)
                 url_geometry_type = meta.get("geometryType", "")

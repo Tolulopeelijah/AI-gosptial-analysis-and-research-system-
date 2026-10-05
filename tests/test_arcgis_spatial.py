@@ -229,7 +229,9 @@ def test_live_pagination_pages_until_exhausted(monkeypatch):
     assert out["ok"] and out["count"] == 5
     assert out["total_count"] == 5 and not out["truncated"]
     assert len(calls["post"]) == 0  # non-spatial path still GETs pages
-    assert len(calls["get"]) == 3  # count + 2 pages
+    # Pages first, count only when capped: exhausted paging yields the exact
+    # total (5) with just the 2 data pages, no count probe.
+    assert len(calls["get"]) == 2  # 2 pages, no count probe needed
 
 
 def test_live_near_posts_spatial_params(monkeypatch):

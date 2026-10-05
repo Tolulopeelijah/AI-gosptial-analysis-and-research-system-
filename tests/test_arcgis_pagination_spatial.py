@@ -269,12 +269,21 @@ def test_2001_retrieves_remainder(monkeypatch):
 
 # -------------------------------------------------- Test 4: spatial filter ---
 
+def _near_and_far_page():
+    # OID 3 sits inside the default _near_poly (trust-but-verify keeps it);
+    # OID 99 is ~3km east, outside the 2km radius (verification drops it
+    # even though the stub server returned it — server rows are checked).
+    return {"features": [_point_feature(3, lon=-83.54, lat=41.605),
+                         _point_feature(99, lon=-83.50, lat=41.60)]}
+
+
 def test_spatial_filter_posts_server_params(monkeypatch):
     L, calls = _install_live(
-        monkeypatch, post_pages=[_point_page([3], False)], count=1)
+        monkeypatch, post_pages=[_near_and_far_page()], count=2)
     out = L.query_arcgis("septic_systems", max_features=100,
                          near=_near_poly(), distance_km=2)
     assert out["ok"] and out["count"] == 1
+    assert out["features"][0]["properties"]["OBJECTID"] == 3
     assert out["strategy"] == "server_spatial"
     bodies = [c for c in calls["post"] if c.get("returnCountOnly") != "true"]
     assert bodies
@@ -287,13 +296,14 @@ def test_spatial_filter_posts_server_params(monkeypatch):
 
 def test_spatial_filter_dict_form_matches_near(monkeypatch):
     L, calls = _install_live(
-        monkeypatch, post_pages=[_point_page([3], False)], count=1)
+        monkeypatch, post_pages=[_near_and_far_page()], count=2)
     near = _near_poly()
     out = L.query_arcgis(
         "septic_systems", max_features=100,
         spatial_filter={"reference": near, "relationship": "within_distance",
                         "distance": 2000, "units": "meters"})
     assert out["ok"] and out["count"] == 1
+    assert out["features"][0]["properties"]["OBJECTID"] == 3
     assert out["strategy"] == "server_spatial"
     assert out["spatial_filter"]["relationship"] == "within_distance"
     bodies = [c for c in calls["post"] if c.get("returnCountOnly") != "true"]

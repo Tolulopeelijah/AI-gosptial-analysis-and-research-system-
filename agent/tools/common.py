@@ -62,12 +62,19 @@ def features_of(fc: Dict[str, Any], name: str = "input") -> List[Dict[str, Any]]
     return fc["features"]
 
 
-def parse_geom(obj: Dict[str, Any], name: str = "geometry"):
+def parse_geom(obj: Any, name: str = "geometry"):
     """Shapely geometry from a GeoJSON geometry or Feature, repaired."""
     from shapely.geometry import shape
     from shapely.validation import make_valid
 
+    if not isinstance(obj, dict):
+        raise ToolError(f"invalid {name}: not an object")
     g = obj.get("geometry", obj) if obj.get("type") == "Feature" else obj
+    if g is None:
+        # County layers contain rows with null geometry; the key exists so
+        # .get's default does NOT apply — check explicitly and skip via
+        # valid_shapes instead of crashing with AttributeError on None.
+        raise ToolError(f"{name} is null (row has no geometry)")
     try:
         geom = shape(g)
     except Exception as exc:

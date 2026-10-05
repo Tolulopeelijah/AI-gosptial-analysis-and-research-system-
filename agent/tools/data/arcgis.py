@@ -596,7 +596,14 @@ def _dissolved_near_chunks(near, distance_m) -> Tuple[List[Tuple[str, str]], int
     """
     from ..common import crs_of, reproject, valid_shapes
 
+    raw_count = len((near.get("features") or []) if isinstance(near, dict) else [])
     pairs = [(f, g) for f, g in valid_shapes(near, "near") if not g.is_empty]
+    if raw_count and not pairs:
+        raise ValueError("reference area has no usable geometries "
+                         "(all rows null or invalid)")
+    if raw_count > len(pairs):
+        log.info("near area: skipped %d null/invalid geometries of %d",
+                 raw_count - len(pairs), raw_count)
     src = crs_of(near)
     if src != "EPSG:4326":
         pairs = [(f, reproject(g, src, "EPSG:4326")) for f, g in pairs]
@@ -1013,6 +1020,40 @@ def query_arcgis(
                     "caps": caps, "pagination_supported": False,
                     "layer_notes": [], "page_notes": []}
 
+    def _probe_one_row(url: str) -> bool:
+        """True if the layer yields at least one row (trust-but-verify zero).
+
+        Single cheap request with the same filters. Used only when a full
+        attempt came back empty with total==0, to distinguish an honestly
+        empty result from a county-side flake.
+        """
+        try:
+            if near is not None and chunks:
+                core = {"where": where, "outFields": "OBJECTID",
+                        "returnGeometry": "false", "outSR": 4326}
+                if distance_m:
+                    core.update(distance=distance_m, units="esriSRUnit_Meter")
+                geom, kind = chunks[0]
+                page = _post_query(url, dict(
+                    core, geometry=geom, geometryType=kind, inSR=4326,
+                    spatialRel="esriSpatialRelIntersects", f="geojson",
+                    resultRecordCount=1))
+                feats, _ = _features_of_page(page, url, "verify probe")
+                return bool(feats)
+            params = {"where": where, "outFields": "OBJECTID",
+                      "returnGeometry": "false", "f": "geojson",
+                      "resultRecordCount": 1, "outSR": 4326}
+            params.update(bbox_params)
+            resp = requests.get(url.rstrip("/") + "/query", params=params,
+                                timeout=TIMEOUT)
+            resp.raise_for_status()
+            feats, _ = _decode_feature_page(resp, url, "verify probe")
+            return bool(feats)
+        except Exception as exc:
+            log.info("query_arcgis %s %s: verify probe failed: %s",
+                     dataset, url, exc)
+            return False
+
     def _attempt_with_retry(url: str) -> Dict[str, Any]:
         """One conditional retry for flaky empty results.
 
@@ -1020,7 +1061,9 @@ def query_arcgis(
         pages (or a failed count probe) while the sibling layer succeeds. If
         an attempt yields zero rows while the count probe promised some —
         or the probe itself failed — wait briefly and try once more rather
-        than reporting a silent incomplete zero.
+        than reporting a silent incomplete zero. A zero total is verified
+        with a one-row probe first, so honestly empty results stay silent
+        while lying zeros are retried and then flagged.
         """
         res = _fetch_one_url(url)
         expected = res.get("total")
@@ -1041,6 +1084,18 @@ def query_arcgis(
                 res["layer_notes"].append(
                     f"{url}: count probe failed and 0 rows retrieved "
                     "(possible service flake)")
+            return res
+        if (not res.get("fatal") and not res.get("features")
+                and expected == 0 and _probe_one_row(url)):
+            log.info("query_arcgis %s %s: zero total contradicted by probe; "
+                     "retrying once", dataset, url)
+            time.sleep(2.0)
+            retry = _fetch_one_url(url)
+            if retry.get("features") or retry.get("fatal"):
+                return retry
+            res["layer_notes"].append(
+                f"{url}: server reported 0 but a one-row probe found data "
+                "(possible service flake); narrow with a bbox and retry")
         return res
 
     all_features: List[Dict[str, Any]] = []

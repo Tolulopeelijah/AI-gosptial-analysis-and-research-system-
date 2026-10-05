@@ -728,18 +728,39 @@ def _dissolved_near_chunks(near, distance_m) -> Tuple[List[Tuple[str, str]], int
             f"reference area has {len(pairs)} geometries (limit "
             f"{MAX_REFERENCE_FEATURES}); narrow with a bbox or place name"
         )
-    # Prefer a single dissolved union: 1 POST chunk instead of N batches.
+    # Prefer a dissolved union: fewer POST chunks than N batches. The union
+    # is repaired (floodplain unions often self-intersect) and exploded so
+    # every chunk is exactly one valid single Polygon — an unambiguous Esri
+    # rings encoding. One POST per part preserves ANY-semantics via the
+    # caller's cross-chunk dedupe.
     if len(pairs) > NEAR_BATCH_SIZE:
         try:
             from shapely.ops import unary_union
+            from shapely.validation import make_valid
 
             union = unary_union([g for _, g in pairs])
-            dissolved = {"type": "FeatureCollection", "crs": "EPSG:4326",
-                         "features": [{"type": "Feature", "properties": {},
-                                       "geometry": __import__(
-                                           "shapely.geometry", fromlist=["mapping"]
-                                       ).mapping(union)}]}
-            chunks, _ = _near_chunks(dissolved, distance_m)
+            if not union.is_valid:
+                union = make_valid(union)
+            parts = list(union.geoms) if union.geom_type == "MultiPolygon" \
+                else [union]
+            parts = [p for p in parts if not p.is_empty]
+            if len(parts) > 64:
+                # Degrade honestly: keep the largest parts (most area) and
+                # say so, instead of firing hundreds of POSTs or sending a
+                # single ambiguous multi-part blob.
+                parts = sorted(parts, key=lambda p: p.area,
+                               reverse=True)[:64]
+                log.warning("near area dissolved into %d parts; kept largest "
+                            "64 (reference coverage reduced)", len(parts))
+            from shapely.geometry import mapping as _mapping
+
+            chunks = []
+            for part in parts:
+                one = {"type": "FeatureCollection", "crs": "EPSG:4326",
+                       "features": [{"type": "Feature", "properties": {},
+                                     "geometry": _mapping(part)}]}
+                sub, _ = _near_chunks(one, distance_m)
+                chunks.extend(sub)
             if chunks:
                 log.info("near area dissolved: %d features -> %d chunk(s)",
                          len(pairs), len(chunks))

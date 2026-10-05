@@ -174,6 +174,33 @@ def test_envelope_window_recovery(monkeypatch):
     assert oids == [11]  # only the truly-near candidate survives
 
 
+def test_dissolve_explodes_to_valid_single_polygons(monkeypatch):
+    """Reference unions must POST as valid single polygons, not ring soup."""
+    from shapely.geometry import shape
+
+    import agent.tools.data.arcgis as L
+
+    monkeypatch.setattr(L, "NEAR_BATCH_SIZE", 2)
+    feats = []
+    for i in range(5):
+        lon = -83.60 + i * 0.05
+        feats.append({
+            "type": "Feature", "properties": {"OBJECTID": i},
+            "geometry": {"type": "Polygon", "coordinates": [[
+                [lon, 41.60], [lon + 0.01, 41.60], [lon + 0.01, 41.61],
+                [lon, 41.61], [lon, 41.60]]]}})
+    near = {"type": "FeatureCollection", "crs": "EPSG:4326",
+            "features": feats}
+    chunks, count, method = L._dissolved_near_chunks(near, 2000.0)
+    assert method == "union" and count == 5
+    assert len(chunks) == 5  # one chunk per disjoint part
+    for geom_json, kind in chunks:
+        assert kind == "esriGeometryPolygon"
+        geom = shape({"type": "Polygon",
+                      "coordinates": json.loads(geom_json)["rings"]})
+        assert geom.geom_type == "Polygon" and geom.is_valid
+
+
 def test_zero_total_probe_runs_without_error(monkeypatch):
     """Empty spatial result with total==0 must run the verify probe cleanly.
 

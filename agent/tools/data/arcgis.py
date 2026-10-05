@@ -361,12 +361,13 @@ def _fetch_spatial_pages(
             pages += 1
             chunk_pages += 1
             if not feats:
+                want = min(page_size, max_features - len(collected))
                 if (chunk_pages == 1 and chunk_offset == 0
-                        and not stepped_down and page_size > 100):
+                        and not stepped_down and want > 25):
                     # First page inexplicably empty: the county server
                     # sometimes blanks on large record counts. Retry the same
                     # offset once with a smaller page before concluding zero.
-                    page_size = max(100, page_size // 4)
+                    page_size = max(25, min(page_size, want) // 4)
                     stepped_down = True
                     log.info("query_arcgis %s: empty first page, stepping "
                              "down to page_size=%d", url, page_size)
@@ -559,14 +560,15 @@ def _fetch_plain_pages(
                 new += 1
         url_pages += 1
         if not feats:
+            want = min(page_size, max_features - len(per_layer))
             if (url_pages == 1 and offset == 0 and not stepped_down
-                    and page_size > 100):
+                    and want > 25):
                 # Same step-down as spatial pages: the county server
                 # sometimes blanks on large record counts.
-                page_size = max(100, page_size // 4)
+                page_size = max(25, min(page_size, want) // 4)
                 stepped_down = True
-                log.info("query_arcgis %s: empty first page, stepping down "
-                         "to page_size=%d", url, page_size)
+                log.info("query_arcgis %s: empty first page, stepping "
+                         "down to page_size=%d", url, page_size)
                 continue
             empty_streak += 1
             if empty_streak >= 2:

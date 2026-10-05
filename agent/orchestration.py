@@ -165,6 +165,21 @@ class Orchestrator:
                     err_short = le if len(le) <= 180 else le[:180] + "…"
                     sample_note += (("; " if sample_note else "")
                                     + f"layer trouble: {err_short}")
+                puc = out.get("per_url_counts") or []
+                if len(puc) > 1 or any(
+                        (e.get("total") or 0) > 0 and not e.get("fetched")
+                        for e in puc):
+                    # Multi-URL honesty: show which service layer contributed
+                    # what (e.g. "MapServer/6: 0/3369; MapServer/7: 14/14"),
+                    # so silent per-layer gaps are visible without digging.
+                    bits = []
+                    for e in puc:
+                        tail = "/".join(
+                            str(e.get("url") or "").rstrip("/").split("/")[-2:])
+                        bits.append(f"{tail}: {e.get('fetched', 0)}/"
+                                    f"{e.get('total', '?')}")
+                    sample_note += (("; " if sample_note else "")
+                                    + "per-layer " + "; ".join(bits))
                 layers.append(feature_collection(
                     out.get("features", []),
                     dataset=out.get("dataset", ""),

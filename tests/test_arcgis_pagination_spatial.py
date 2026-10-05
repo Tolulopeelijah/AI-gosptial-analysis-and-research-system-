@@ -131,6 +131,49 @@ def test_id_phase_recovery_when_spatial_blanks(monkeypatch):
     assert out["total_count"] == 2 and not out["truncated"]
 
 
+def test_envelope_window_recovery(monkeypatch):
+    """Envelope-bbox + local filter recovers when spatial POSTs blank.
+
+    Spatial predicate POSTs (full and ID-phase) return nothing while a
+    plain envelope-bbox GET returns candidates; the exact local metric
+    filter must keep only true matches with strategy ``bbox_window_local``.
+    """
+    from agent.tools.data import arcgis as L
+
+    L.clear_capability_cache()
+    monkeypatch.setattr(L, "_mock_enabled", lambda: False)
+    monkeypatch.setattr(L, "_layer_urls",
+                        lambda dataset, extra=None: ["http://x/0"])
+    monkeypatch.setattr(L, "describe_layer", lambda url: {
+        "geometryType": "esriGeometryPoint", "supportsPagination": True,
+        "supportsQueryWithDistance": True, "supportsAdvancedQueries": True})
+
+    def fake_post(url, data=None, timeout=None):
+        data = dict(data or {})
+        if data.get("returnCountOnly") == "true":
+            return _FakeResponse({"count": 0})
+        return _FakeResponse({"features": []})  # all spatial POSTs blank
+
+    def fake_get(url, params=None, timeout=None):
+        params = dict(params or {})
+        if params.get("returnCountOnly") == "true":
+            return _FakeResponse({"count": 0})
+        # Envelope-bbox plain GET returns one near + one far candidate.
+        return _FakeResponse({"features": [
+            _point_feature(11, lon=-83.549, lat=41.605),
+            _point_feature(12, lon=-84.90, lat=40.00)]})
+
+    monkeypatch.setattr(L.requests, "post", fake_post)
+    monkeypatch.setattr(L.requests, "get", fake_get)
+    ref = _near_poly(lon=-83.55, lat=41.60, size=0.02)
+    out = L.query_arcgis("septic_systems", near=ref, distance_km=2,
+                         max_features=100)
+    assert out["ok"]
+    assert out["strategy"] == "bbox_window_local"
+    oids = [f["properties"]["OBJECTID"] for f in out["features"]]
+    assert oids == [11]  # only the truly-near candidate survives
+
+
 def test_zero_total_probe_runs_without_error(monkeypatch):
     """Empty spatial result with total==0 must run the verify probe cleanly.
 

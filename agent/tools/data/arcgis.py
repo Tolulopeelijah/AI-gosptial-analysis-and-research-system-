@@ -1121,6 +1121,81 @@ def query_arcgis(
                             except Exception as exc:
                                 layer_notes.append(
                                     f"{url}: ID-phase recovery failed: {exc}")
+                        if not per_layer and url_strategy in (
+                                "server_spatial", "server_spatial_ids"):
+                            # Last resort avoiding the flaky spatial POST
+                            # entirely: buffered-envelope bbox plain fetch
+                            # (the reliably working request family) + exact
+                            # local metric filter. Every returned row
+                            # provably satisfies the predicate; the fetch
+                            # window is explicit in counts, never silent.
+                            try:
+                                from ..common import (
+                                    crs_of as _crs_of,
+                                    metric_crs_for as _metric,
+                                    reproject as _reproj,
+                                    valid_shapes as _valid,
+                                )
+                                from shapely.geometry import box as _box
+                                from shapely.ops import (
+                                    transform as _shp_transform,
+                                )
+                                from shapely.ops import unary_union as _union
+
+                                from pyproj import CRS as _CRS
+                                from pyproj import Transformer as _T
+                                rpairs = _valid(near, "near")
+                                if rpairs and len(rpairs) <= 3000:
+                                    rsrc = _crs_of(near)
+                                    _m = _metric(
+                                        [g for _, g in rpairs])
+                                    _u = _union(
+                                        [_reproj(g, rsrc, _m)
+                                         for _, g in rpairs])
+                                    _b = (_u.buffer(distance_m)
+                                          if distance_m else _u)
+                                    _t = _T.from_crs(
+                                        _CRS(_m), _CRS("EPSG:4326"),
+                                        always_xy=True)
+                                    _w, _s, _e, _n = _shp_transform(
+                                        _t.transform,
+                                        _box(*_b.bounds)).bounds
+                                    bbox_env = {
+                                        "geometry": f"{_w},{_s},{_e},{_n}",
+                                        "geometryType":
+                                            "esriGeometryEnvelope",
+                                        "inSR": 4326,
+                                        "spatialRel":
+                                            "esriSpatialRelIntersects",
+                                    }
+                                    win, wpages, _w = _fetch_plain_pages(
+                                        url, where, out_fields,
+                                        return_geometry, bbox_env,
+                                        max_features,
+                                        min(page_size, 500),
+                                        pagination_supported)
+                                    url_pages += wpages
+                                    kept = _local_within_distance_fallback(
+                                        win, near, distance_m)
+                                    if kept:
+                                        log.info(
+                                            "query_arcgis %s %s: envelope "
+                                            "window recovered %d of %d "
+                                            "candidates", dataset, url,
+                                            len(kept), len(win))
+                                        per_layer = kept[:max_features]
+                                        url_strategy = "bbox_window_local"
+                                        if entry is not None:
+                                            entry["scanned"] = len(win)
+                                            entry["matched"] = len(kept)
+                                            if not entry.get("total"):
+                                                entry["total"] = None
+                                        if not url_total:
+                                            url_total = None
+                            except Exception as exc:
+                                layer_notes.append(
+                                    f"{url}: envelope-window recovery "
+                                    f"failed: {exc}")
             else:
                 if bbox_params:
                     url_strategy = "server_spatial_bbox"

@@ -201,6 +201,42 @@ def test_dissolve_explodes_to_valid_single_polygons(monkeypatch):
         assert geom.geom_type == "Polygon" and geom.is_valid
 
 
+def test_single_row_salvage_recovery(monkeypatch):
+    """Bulk spatial blanks but recordCount=1 serves: salvage must recover."""
+    from agent.tools.data import arcgis as L
+
+    L.clear_capability_cache()
+    monkeypatch.setattr(L, "_mock_enabled", lambda: False)
+    monkeypatch.setattr(L, "_layer_urls",
+                        lambda dataset, extra=None: ["http://x/0"])
+    monkeypatch.setattr(L, "describe_layer", lambda url: {
+        "geometryType": "esriGeometryPoint", "supportsPagination": True,
+        "supportsQueryWithDistance": True, "supportsAdvancedQueries": True})
+    rows = [_point_feature(21, lon=-83.54, lat=41.605),
+            _point_feature(22, lon=-83.541, lat=41.606)]
+
+    def fake_post(url, data=None, timeout=None):
+        data = dict(data or {})
+        if data.get("returnCountOnly") == "true":
+            return _FakeResponse({"count": 0})
+        if int(data.get("resultRecordCount", 0)) == 1:
+            off = int(data.get("resultOffset", 0))
+            if off < len(rows):
+                return _FakeResponse({"features": [rows[off]]})
+            return _FakeResponse({"features": []})
+        return _FakeResponse({"features": []})  # bulk blanks
+
+    monkeypatch.setattr(L.requests, "post", fake_post)
+    monkeypatch.setattr(
+        L.requests, "get",
+        lambda url, params=None, timeout=None: _FakeResponse({"count": 0}))
+    out = L.query_arcgis("septic_systems", near=_near_poly(), distance_km=2,
+                         max_features=100)
+    assert out["ok"] and out["count"] == 2
+    assert out["strategy"] == "server_spatial_single_row"
+    assert [f["properties"]["OBJECTID"] for f in out["features"]] == [21, 22]
+
+
 def test_zero_total_probe_runs_without_error(monkeypatch):
     """Empty spatial result with total==0 must run the verify probe cleanly.
 

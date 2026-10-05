@@ -487,6 +487,43 @@ def _fetch_by_ids(url: str, ids: List[int], out_fields: str,
     return feats_all, pages
 
 
+def _fetch_single_rows(url: str, core: Dict[str, Any], chunks,
+                        max_rows: int) -> Tuple[list, int]:
+    """Last-resort salvage: page recordCount=1 (the shape this server
+    reliably answers) with resultOffset, fracturing a blanked-out bulk
+    fetch into tiny requests the server actually serves.
+
+    Bounded (<=12 requests): returns whatever rows materialize, possibly
+    fewer than max_rows. Callers verify rows locally and report the
+    salvage honestly.
+    """
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    pages = 0
+    for geometry, geometry_type in chunks:
+        params = dict(core, geometry=geometry, geometryType=geometry_type,
+                      inSR=4326, spatialRel="esriSpatialRelIntersects")
+        offset = 0
+        while len(out) < max_rows and pages < 12:
+            req = dict(params, f="geojson", resultRecordCount=1)
+            if offset:
+                req["resultOffset"] = offset
+            page = _post_query(url, req)
+            feats, _ = _features_of_page(page, url, "single-row rescue")
+            pages += 1
+            if not feats:
+                break
+            key = _dedupe_key(feats[0])
+            if key in seen:
+                break  # server ignoring offset; don't spin
+            seen.add(key)
+            out.append(feats[0])
+            offset += 1
+        if len(out) >= max_rows:
+            break
+    return out, pages
+
+
 SPATIAL_FILTER_RELATIONSHIPS = ("within_distance", "intersects")
 
 _DISTANCE_TO_M = {
@@ -1392,6 +1429,42 @@ def query_arcgis(
             if retry.get("features") or retry.get("fatal"):
                 return retry
             res = retry
+        if found and near is not None and chunks and max_features > 1:
+            # Salvage: the probe proves rows exist that bulk fetches can't
+            # materialize. Re-fetch them one row at a time (bounded), verify
+            # locally, and report the salvage instead of an empty map.
+            try:
+                core_full = {"where": where, "outFields": out_fields,
+                             "returnGeometry":
+                                 "true" if return_geometry else "false",
+                             "outSR": 4326}
+                if distance_m:
+                    core_full.update(distance=distance_m,
+                                     units="esriSRUnit_Meter")
+                salvaged, spages = _fetch_single_rows(
+                    url, core_full, chunks, min(max_features, 10))
+                if salvaged:
+                    if distance_m:
+                        salvaged = _local_within_distance_fallback(
+                            salvaged, near, distance_m)
+                if salvaged:
+                    log.info("query_arcgis %s %s: single-row salvage "
+                             "recovered %d rows", dataset, url, len(salvaged))
+                    res["features"] = salvaged[:max_features]
+                    res["strategy"] = "server_spatial_single_row"
+                    res["pages"] = res.get("pages", 0) + spages
+                    res["layer_notes"].append(
+                        f"{url}: bulk fetch blanked; single-row salvage "
+                        f"recovered {len(salvaged)} rows (server unstable)")
+                    if res.get("entry") is not None:
+                        res["entry"]["matched"] = len(salvaged)
+                        res["entry"]["fetched"] = len(salvaged)
+                        res["entry"]["total"] = None
+                    res["total"] = None
+                    return res
+            except Exception as exc:
+                log.info("query_arcgis %s %s: salvage failed: %s",
+                         dataset, url, exc)
         if found:
             res["layer_notes"].append(
                 f"{url}: server reported {expected} but a one-row probe "

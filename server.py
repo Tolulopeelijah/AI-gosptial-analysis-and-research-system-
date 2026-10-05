@@ -26,7 +26,7 @@ agent = GeospatialAgent()
 # Bumped on every deploy-relevant change so /health reveals which code a
 # host is actually running (Render redeploys take minutes; poll until this
 # flips before re-testing a fix).
-APP_VERSION = "2026-10-05-ids-probe-matrix"
+APP_VERSION = "2026-10-05-probe-gated-retry"
 
 
 @app.after_request

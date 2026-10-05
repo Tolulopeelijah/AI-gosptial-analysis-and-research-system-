@@ -1215,50 +1215,41 @@ def query_arcgis(
         return light, detail
 
     def _attempt_with_retry(url: str) -> Dict[str, Any]:
-        """One conditional retry for flaky empty results.
+        """Evidence-gated retries for flaky empty results.
 
-        The county server intermittently answers valid requests with empty
-        pages (or a failed count probe) while the sibling layer succeeds. If
-        an attempt yields zero rows while the count probe promised some —
-        or the probe itself failed — wait briefly and try once more rather
-        than reporting a silent incomplete zero. A zero total is verified
-        with a one-row probe first, so honestly empty results stay silent
-        while lying zeros are retried and then flagged.
+        The county server nondeterministically blanks identical requests
+        (a one-row probe hits seconds after a full fetch blanks), so a
+        single try is not conclusive. On an empty, non-fatal attempt, run
+        the one-row probe first: if it also finds nothing, accept the
+        honest zero silently; if it finds data (or the count probe promised
+        rows), retry the full attempt up to twice more with backoff and
+        keep the first non-empty result. A still-empty outcome is flagged
+        with the probe matrix instead of being presented as complete.
         """
         res = _fetch_one_url(url)
-        expected = res.get("total")
-        if (not res.get("fatal") and not res.get("features")
-                and (expected is None or expected > 0)):
-            log.info("query_arcgis %s %s: empty despite total=%s; retrying once",
-                     dataset, url, expected)
-            time.sleep(2.0)
-            retry = _fetch_one_url(url)
-            if retry.get("features") or retry.get("fatal"):
-                return retry
-            # Retry equally empty: keep the original but flag the mismatch.
-            if expected:
-                res["layer_notes"].append(
-                    f"{url}: server reported {expected} but returned 0 rows "
-                    "(possible service flake); narrow with a bbox and retry")
-            else:
-                res["layer_notes"].append(
-                    f"{url}: count probe failed and 0 rows retrieved "
-                    "(possible service flake)")
+        if res.get("fatal") or res.get("features"):
             return res
-        if (not res.get("fatal") and not res.get("features")
-                and expected == 0):
-            found, detail = _probe_one_row(url)
-            if not found:
-                return res
-            log.info("query_arcgis %s %s: zero total contradicted by probe; "
-                     "retrying once", dataset, url)
-            time.sleep(2.0)
+        expected = res.get("total")
+        found, detail = _probe_one_row(url)
+        if not found and not expected:
+            return res  # count and probe agree: honestly empty
+        log.info("query_arcgis %s %s: empty (total=%s probe=%s); retrying",
+                 dataset, url, expected, detail)
+        for wait in (2.0, 5.0):
+            time.sleep(wait)
             retry = _fetch_one_url(url)
             if retry.get("features") or retry.get("fatal"):
                 return retry
+            res = retry
+        if found:
             res["layer_notes"].append(
-                f"{url}: server reported 0 but a one-row probe found data "
-                f"[{detail}] (possible service flake); "
+                f"{url}: server reported {expected} but a one-row probe "
+                f"found data [{detail}] (possible service flake); "
+                "narrow with a bbox and retry")
+        else:
+            res["layer_notes"].append(
+                f"{url}: server reported {expected} but returned 0 rows "
+                f"[probe {detail}] (possible service flake); "
                 "narrow with a bbox and retry")
         return res
 

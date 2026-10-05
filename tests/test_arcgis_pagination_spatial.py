@@ -86,6 +86,49 @@ def _clear_capability_cache():
     live.clear_capability_cache()
 
 
+def test_id_phase_recovery_when_spatial_blanks(monkeypatch):
+    """County quirk: spatial+geometry POSTs blank while light POSTs hit.
+
+    Full-geometry spatial fetch returns 0 rows (and the count probe lies
+    with 0), but OBJECTID-only collection + attribute fetch must still
+    recover the matches with strategy ``server_spatial_ids``.
+    """
+    from agent.tools.data import arcgis as L
+
+    L.clear_capability_cache()
+    monkeypatch.setattr(L, "_mock_enabled", lambda: False)
+    monkeypatch.setattr(L, "_layer_urls",
+                        lambda dataset, extra=None: ["http://x/0"])
+    monkeypatch.setattr(L, "describe_layer", lambda url: {
+        "geometryType": "esriGeometryPoint", "supportsPagination": True,
+        "supportsQueryWithDistance": True, "supportsAdvancedQueries": True})
+
+    def fake_post(url, data=None, timeout=None):
+        data = dict(data or {})
+        if data.get("returnCountOnly") == "true":
+            return _FakeResponse({"count": 0})  # lying count probe
+        if "OBJECTID IN" in str(data.get("where", "")):
+            return _FakeResponse({"features": [_point_feature(7),
+                                                _point_feature(9)]})
+        if data.get("returnGeometry") == "false":
+            return _FakeResponse({"features": [
+                {"type": "Feature", "properties": {"OBJECTID": 7},
+                 "geometry": None},
+                {"type": "Feature", "properties": {"OBJECTID": 9},
+                 "geometry": None}]})
+        return _FakeResponse({"features": []})  # geometry variant blanks
+
+    monkeypatch.setattr(L.requests, "post", fake_post)
+    monkeypatch.setattr(
+        L.requests, "get",
+        lambda url, params=None, timeout=None: _FakeResponse({"count": 0}))
+    out = L.query_arcgis("septic_systems", near=_near_poly(), distance_km=2,
+                         max_features=100)
+    assert out["ok"] and out["count"] == 2
+    assert out["strategy"] == "server_spatial_ids"
+    assert out["total_count"] == 2 and not out["truncated"]
+
+
 def _near_poly(lon=-83.55, lat=41.60, size=0.02):
     return {
         "type": "FeatureCollection", "crs": "EPSG:4326",

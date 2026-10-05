@@ -396,6 +396,83 @@ def _fetch_spatial_pages(
     return collected, pages, info
 
 
+def _collect_matching_ids(url: str, core_light: Dict[str, Any], chunks,
+                            max_ids: int) -> Tuple[List[int], int]:
+    """Phase 1 of ID-based recovery: matching OBJECTIDs via light POSTs.
+
+    Same spatial predicate as the full fetch but ``returnGeometry=false``
+    and no attributes — responses are tiny. The county server answers these
+    reliably even when it blanks the geometry-bearing variant.
+    """
+    ids: List[int] = []
+    seen = set()
+    pages = 0
+    for geometry, geometry_type in chunks:
+        params = dict(core_light, geometry=geometry,
+                      geometryType=geometry_type,
+                      inSR=4326, spatialRel="esriSpatialRelIntersects")
+        offset = 0
+        guard = 0
+        while len(ids) < max_ids and guard < 4:
+            guard += 1
+            req = dict(params, f="geojson",
+                       resultRecordCount=min(500, max_ids - len(ids)))
+            if offset:
+                req["resultOffset"] = offset
+            page = _post_query(url, req)
+            feats, exceeded = _features_of_page(page, url, "id phase")
+            new = 0
+            for feat in feats:
+                props = feat.get("properties") if isinstance(feat, dict) else None
+                oid = props.get("OBJECTID") if isinstance(props, dict) else None
+                if isinstance(oid, int) and oid not in seen:
+                    seen.add(oid)
+                    ids.append(oid)
+                    new += 1
+            pages += 1
+            offset += len(feats)
+            if not exceeded or not feats:
+                break
+            if new == 0 and len(feats) > 0:
+                break  # server ignoring offset; avoid a loop
+        if len(ids) >= max_ids:
+            break
+    return ids, pages
+
+
+def _fetch_by_ids(url: str, ids: List[int], out_fields: str,
+                   return_geometry: bool, batch: int = 500) -> Tuple[list, int]:
+    """Phase 2 of ID-based recovery: geometries via plain attribute POSTs.
+
+    ``OBJECTID IN (...)`` is a plain attribute predicate — a different
+    server code path from spatial+distance, and one this server answers
+    with geometries intact. POST keeps long IN-lists out of URL limits.
+    """
+    feats_all: List[Dict[str, Any]] = []
+    pages = 0
+    for i in range(0, len(ids), batch):
+        chunk = ids[i:i + batch]
+        where_in = "OBJECTID IN (%s)" % ",".join(str(o) for o in chunk)
+        offset = 0
+        guard = 0
+        while guard < MAX_PAGES_GUARD:
+            guard += 1
+            req = {"where": where_in, "outFields": out_fields,
+                   "returnGeometry": "true" if return_geometry else "false",
+                   "f": "geojson", "outSR": 4326,
+                   "resultRecordCount": len(chunk) - offset}
+            if offset:
+                req["resultOffset"] = offset
+            page = _post_query(url, req)
+            feats, exceeded = _features_of_page(page, url, "id fetch")
+            feats_all.extend(feats)
+            pages += 1
+            offset += len(feats)
+            if not exceeded or not feats or offset >= len(chunk):
+                break
+    return feats_all, pages
+
+
 SPATIAL_FILTER_RELATIONSHIPS = ("within_distance", "intersects")
 
 _DISTANCE_TO_M = {
@@ -999,6 +1076,51 @@ def query_arcgis(
                                 f"{url}: paging stopped early "
                                 f"({pg_info['stopped_early']}); kept "
                                 f"{len(per_layer)} features")
+                        if not per_layer:
+                            # Empty full fetch on a predicate path the
+                            # one-row probe says is non-empty: this server
+                            # blanks spatial+geometry combos. Recover by
+                            # collecting matching OBJECTIDs light, then
+                            # fetching their geometries as plain attribute
+                            # queries (a server path that works).
+                            try:
+                                light = {"where": where,
+                                         "outFields": "OBJECTID",
+                                         "returnGeometry": "false",
+                                         "outSR": 4326}
+                                if distance_m:
+                                    light.update(
+                                        distance=distance_m,
+                                        units="esriSRUnit_Meter")
+                                ids, id_pages = _collect_matching_ids(
+                                    url, light, chunks, max_features)
+                                url_pages += id_pages
+                                if ids:
+                                    log.info("query_arcgis %s %s: ID-phase "
+                                             "found %d matches; fetching "
+                                             "geometries", dataset, url,
+                                             len(ids))
+                                    fetched, fpages = _fetch_by_ids(
+                                        url, ids, out_fields, return_geometry)
+                                    url_pages += fpages
+                                    per_layer = fetched[:max_features]
+                                    url_strategy = "server_spatial_ids"
+                                    if entry is not None:
+                                        entry["matched"] = len(ids)
+                                    if len(ids) < max_features:
+                                        # Exhaustive enumeration: exact total,
+                                        # overriding any lying server count.
+                                        if entry is not None:
+                                            entry["total"] = len(ids)
+                                        url_total = len(ids)
+                                    elif not (entry.get("total")
+                                              if entry else url_total):
+                                        if entry is not None:
+                                            entry["total"] = None
+                                        url_total = None
+                            except Exception as exc:
+                                layer_notes.append(
+                                    f"{url}: ID-phase recovery failed: {exc}")
             else:
                 if bbox_params:
                     url_strategy = "server_spatial_bbox"

@@ -277,7 +277,7 @@ _PARAM_NAMES = [
     ("flow", "FLOW"),
 ]
 _KNOW_RE = re.compile(r"\b(publication|research|paper|stud(y|ies)|implication|ncwqr|literature|wqr)\b", re.I)
-_SEPTIC_RE = re.compile(r"\bseptic\b", re.I)
+_SEPTIC_RE = re.compile(r"\bseptics?\b", re.I)
 _FLOOD_RE = re.compile(r"\bfloodplain|flood\b", re.I)
 _HOSPITAL_RE = re.compile(r"\bhospital|school|restaurant|earthquake|wildfire|hurricane\b", re.I)
 
@@ -319,13 +319,36 @@ class RulePlanner:
             if any(s.tool == "search_knowledge_base" for s in steps):
                 kind = "combined"
         elif re.search(r"\bhow many\b", q, re.I) and (wants_septic or wants_flood):
-            target, ds = (("septic", "septic_systems") if wants_septic
-                          else ("floodplains", "floodplains"))
-            steps = [PlanStep(id=target, tool="query_arcgis",
-                              arguments={"dataset": ds}, depends_on=[]),
-                     PlanStep(id="count", tool="count_features",
-                              arguments={"input": f"${target}"},
-                              depends_on=[target])]
+            dist = _DISTANCE_RE.search(q)
+            if (dist and wants_septic and wants_flood
+                    and "septic_systems" in avail and "floodplains" in avail):
+                # "how many septics within 10km of floodplains": proximity
+                # filter first, then count the filtered set — never an
+                # unfiltered count that ignores the distance phrase.
+                val, unit = float(dist.group(1)), dist.group(2).lower()
+                steps = [
+                    PlanStep(id="floodplains", tool="query_arcgis",
+                             arguments={"dataset": "floodplains",
+                                        "max_features": 2000},
+                             depends_on=[]),
+                    PlanStep(id="septic", tool="query_arcgis",
+                             arguments={"dataset": "septic_systems",
+                                        "max_features": 2000,
+                                        "near": "$floodplains",
+                                        "distance_km": self._to_km(val, unit)},
+                             depends_on=["floodplains"]),
+                    PlanStep(id="count", tool="count_features",
+                             arguments={"input": "$septic"},
+                             depends_on=["septic"]),
+                ]
+            else:
+                target, ds = (("septic", "septic_systems") if wants_septic
+                              else ("floodplains", "floodplains"))
+                steps = [PlanStep(id=target, tool="query_arcgis",
+                                  arguments={"dataset": ds}, depends_on=[]),
+                         PlanStep(id="count", tool="count_features",
+                                  arguments={"input": f"${target}"},
+                                  depends_on=[target])]
         elif re.search(r"\b(area|how large|how big|total size)\b", q, re.I) and wants_flood:
             steps = [PlanStep(id="floodplains", tool="query_arcgis",
                               arguments={"dataset": "floodplains"}, depends_on=[]),
